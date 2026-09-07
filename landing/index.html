@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CodeAudit AI — Аудит кода через AI за 30 секунд</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; color: #1a1a1a; }
+        .container { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
+        .hero { background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%); color: white; padding: 80px 0; text-align: center; }
+        .hero h1 { font-size: 2.5rem; margin-bottom: 20px; }
+        .hero p { font-size: 1.2rem; opacity: 0.9; max-width: 600px; margin: 0 auto 30px; }
+        .hero .btn { background: #3b82f6; color: white; padding: 15px 40px; border-radius: 8px; text-decoration: none; font-size: 1.1rem; display: inline-block; }
+        .hero .btn:hover { background: #2563eb; }
+        .features { padding: 60px 0; background: #f8fafc; }
+        .features h2 { text-align: center; margin-bottom: 40px; font-size: 2rem; }
+        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 30px; }
+        .feature { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .feature h3 { color: #1e3a5f; margin-bottom: 15px; }
+        .pricing { padding: 60px 0; }
+        .pricing h2 { text-align: center; margin-bottom: 40px; font-size: 2rem; }
+        .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 30px; }
+        .price-card { background: white; border: 2px solid #e2e8f0; padding: 40px; border-radius: 12px; text-align: center; }
+        .price-card.popular { border-color: #3b82f6; position: relative; }
+        .price-card.popular::before { content: 'ПОПУЛЯРНЫЙ'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #3b82f6; color: white; padding: 4px 16px; border-radius: 20px; font-size: 0.8rem; }
+        .price { font-size: 2.5rem; font-weight: bold; color: #1e3a5f; margin: 20px 0; }
+        .price span { font-size: 1rem; color: #666; }
+        .demo { padding: 60px 0; background: #f8fafc; }
+        .demo h2 { text-align: center; margin-bottom: 40px; font-size: 2rem; }
+        .demo-form { max-width: 700px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .demo-form textarea { width: 100%; height: 200px; font-family: monospace; font-size: 14px; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; resize: vertical; }
+        .demo-form select { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; margin: 15px 0; }
+        .demo-form button { width: 100%; background: #3b82f6; color: white; padding: 15px; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; }
+        .demo-form button:hover { background: #2563eb; }
+        #result { margin-top: 20px; padding: 20px; background: #f1f5f9; border-radius: 8px; white-space: pre-wrap; font-size: 14px; display: none; }
+        .footer { background: #0d1b2a; color: white; padding: 40px 0; text-align: center; }
+    </style>
+</head>
+<body>
+    <section class="hero">
+        <div class="container">
+            <h1>🔍 CodeAudit AI</h1>
+            <p>Аудит кода через AI за 30 секунд. Находим баги, уязвимости и логические ошибки.</p>
+            <a href="#demo" class="btn">Попробовать бесплатно</a>
+        </div>
+    </section>
+    <section class="features">
+        <div class="container">
+            <h2>Почему CodeAudit AI?</h2>
+            <div class="features-grid">
+                <div class="feature"><h3>⏱️ 30 секунд</h3><p>Получите полный отчёт за 30 секунд вместо часов ручного код-ревью.</p></div>
+                <div class="feature"><h3>🎯 9 моделей AI</h3><p>GLM-5.2, GPT-6-Astra, Claude Opus 5 и другие — ансамбль для максимальной точности.</p></div>
+                <div class="feature"><h3>🔒 Безопасность</h3><p>Секреты автоматически скрываются перед отправкой. Ваш код под защитой.</p></div>
+                <div class="feature"><h3>📊 P0/P1/P2</h3><p>Структурированный отчёт с приоритизацией проблем: от критических до мелочей.</p></div>
+                <div class="feature"><h3>💻 Любой язык</h3><p>Python, C++, JavaScript, Go и другие — поддерживаем основные языки.</p></div>
+                <div class="feature"><h3>💰 Экономия</h3><p>В 10–50 раз дешевле ручного аудита. Первый аудит — бесплатно.</p></div>
+            </div>
+        </div>
+    </section>
+    <section class="pricing">
+        <div class="container">
+            <h2>Тарифы</h2>
+            <div class="pricing-grid">
+                <div class="price-card"><h3>Бесплатный</h3><div class="price">$0</div><p>1 аудит в день</p><ul style="list-style:none;margin-top:20px;text-align:left"><li>✓ До 500 строк</li><li>✓ 1 модель AI</li><li>✓ Базовый отчёт</li></ul></div>
+                <div class="price-card popular"><h3>Pro</h3><div class="price">$49<span>/мес</span></div><p>Без ограничений</p><ul style="list-style:none;margin-top:20px;text-align:left"><li>✓ Без ограничений</li><li>✓ 9 моделей AI</li><li>✓ Ансамбль моделей</li><li>✓ PDF-отчёт</li></ul></div>
+                <div class="price-card"><h3>Enterprise</h3><div class="price">$499</div><p>Разовый аудит проекта</p><ul style="list-style:none;margin-top:20px;text-align:left"><li>✓ Весь код проекта</li><li>✓ Все модели AI</li><li>✓ Детальный отчёт</li><li>✓ Поддержка 24/7</li></ul></div>
+            </div>
+        </div>
+    </section>
+    <section class="demo" id="demo">
+        <div class="container">
+            <h2>Попробуйте бесплатно</h2>
+            <div class="demo-form">
+                <textarea id="code" placeholder="Вставьте код сюда..."></textarea>
+                <select id="model">
+                    <option value="glm-5.2">GLM-5.2 (Zhipu)</option>
+                    <option value="gpt-6-astra">GPT-6-Astra</option>
+                    <option value="gpt-5.5">GPT-5.5</option>
+                    <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
+                    <option value="claude-opus-5">Claude Opus 5</option>
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
+                    <option value="grok-4.6">Grok 4.6</option>
+                    <option value="kimi-k3">Kimi K3</option>
+                    <option value="qwen3.8-max">Qwen 3.8 Max</option>
+                </select>
+                <button onclick="doAudit()">Аудитировать</button>
+                <div id="result"></div>
+            </div>
+        </div>
+    </section>
+    <section class="footer"><div class="container"><p>© 2026 CodeAudit AI. Все права защищены.</p></div></section>
+    <script>
+    async function doAudit() {
+        const code = document.getElementById('code').value;
+        const model = document.getElementById('model').value;
+        const result = document.getElementById('result');
+        if (!code.trim()) { result.style.display='block'; result.innerHTML='❌ Вставьте код'; return; }
+        result.style.display='block'; result.innerHTML='⏳ Аудит через '+model+'...';
+        try {
+            const fd = new FormData(); fd.append('code', code); fd.append('model', model);
+            const r = await fetch('/api/audit', {method:'POST', body:fd});
+            const data = await r.json();
+            if (data.error) { result.innerHTML='❌ '+data.error; }
+            else { result.innerHTML='<strong>Модель:</strong> '+data.model+'<br><strong>Токены:</strong> '+(data.prompt_tokens||0)+' in / '+(data.completion_tokens||0)+' out<br><br><pre>'+data.report+'</pre>'; }
+        } catch(e) { result.innerHTML='❌ Ошибка: '+e.message; }
+    }
+    </script>
+</body>
+</html>
