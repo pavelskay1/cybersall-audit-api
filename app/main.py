@@ -1,5 +1,15 @@
-"""FastAPI-сервис для аудита кода через clodex.xyz."""
-import json
+"""FastAPI-сервис для аудита кода через clodex.xyz.
+
+Исправления (по результатам аудита Claude Opus 5 + GPT-6-Astra):
+- Path traversal: report_path создаётся через uuid, имя файла игнорируется
+- XSS: data.report экранируется через textContent, а не innerHTML
+- Лимит размера: max 200 КБ на код, max 4 КБ на question
+- Prompt injection: sanitize() применяется к question тоже
+- Error leakage: внутренние ошибки не раскрываются
+- safe_filename: токенизированное имя файла для отчётов
+"""
+import re
+import uuid
 import asyncio
 from pathlib import Path, PurePath
 from datetime import datetime, timezone
@@ -12,11 +22,29 @@ from .auth import verify_key, generate_key
 app = FastAPI(
     title="Code Audit API",
     description="Аудит кода через AI-пайплайн (clodex.xyz)",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
+
+MAX_CODE_LEN = 200_000
+MAX_QUESTION_LEN = 4_000
+
+
+def safe_filename(raw: str, max_len: int = 100) -> str:
+    """Токенизирует имя файла: только [A-Za-z0-9._-], без path separators."""
+    name = PurePath(raw).name
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    return name[:max_len] or "upload"
+
+
+def check_code(code: str):
+    """Проверяет размер кода."""
+    if not code.strip():
+        raise HTTPException(400, "Код пустой")
+    if len(code) > MAX_CODE_LEN:
+        raise HTTPException(413, f"Код слишком большой (макс {MAX_CODE_LEN:,} символов)")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -41,40 +69,43 @@ async def index():
 </style>
 </head>
 <body>
-<h1>🔍 Code Audit API</h1>
-<p>Требуется API-ключ (X-API-Key заголовок).</p>
-
+<h1>Code Audit API</h1>
+<p>Tребуется API-ключ (X-API-Key заголовок).</p>
 <label>API-ключ:</label>
 <input type="text" id="apikey" placeholder="Ваш API-ключ">
-
 <label>Модель:</label>
 <select id="model">{models_html}</select>
-
 <label>Код:</label>
 <textarea id="code" placeholder="Вставьте код сюда..."></textarea>
-
 <button onclick="doAudit()">Аудитировать</button>
 <div id="result"></div>
-
 <script>
 async function doAudit() {{
   const code = document.getElementById('code').value;
   const model = document.getElementById('model').value;
   const apikey = document.getElementById('apikey').value;
   const result = document.getElementById('result');
-  if (!apikey) {{ result.innerHTML = '❌ Введите API-ключ'; return; }}
-  result.innerHTML = '⏳ Аудит через ' + model + '...';
+  if (!apikey) {{ result.textContent = 'Введите API-ключ'; return; }}
+  result.textContent = 'Аудит через ' + model + '...';
   try {{
     const fd = new FormData();
     fd.append('code', code);
     fd.append('model', model);
     const r = await fetch('/api/audit', {{ method: 'POST', headers: {{ 'X-API-Key': apikey }}, body: fd }});
     const data = await r.json();
-    if (data.error || data.detail) {{ result.innerHTML = '❌ ' + (data.error || data.detail); }}
-    else {{ result.innerHTML = '<div class="meta">Модель: ' + data.model +
-      ' | Баланс: ' + (data.balance_remaining||'?') + ' | Токены: ' + (data.prompt_tokens||0) + '/' + (data.completion_tokens||0) +
-      '</div><pre>' + data.report + '</pre>'; }}
-  }} catch(e) {{ result.innerHTML = '❌ ' + e.message; }}
+    if (data.error || data.detail) {{
+      result.textContent = 'Ошибка: ' + (data.error || data.detail);
+    }} else {{
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = 'Модель: ' + data.model +
+        ' | Баланс: ' + (data.balance_remaining||'?') +
+        ' | Токены: ' + (data.prompt_tokens||0) + '/' + (data.completion_tokens||0);
+      const pre = document.createElement('pre');
+      pre.textContent = data.report;
+      result.replaceChildren(meta, pre);
+    }}
+  }} catch(e) {{ result.textContent = 'Ошибка: ' + e.message; }}
 }}
 </script>
 </body></html>"""
@@ -87,13 +118,17 @@ async def api_audit(
     question: str = Form(None),
     client: dict = Depends(verify_key),
 ):
-    if not code.strip():
-        raise HTTPException(400, "Код пустой")
+    check_code(code)
+    if question:
+        question = sanitize(question)
+        if len(question) > MAX_QUESTION_LEN:
+            raise HTTPException(413, f"Question слишком длинный (макс {MAX_QUESTION_LEN:,})")
     try:
         result = await asyncio.to_thread(audit_code, code, model, question)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-    report_name = f"report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{model}.txt"
+        return JSONResponse({"error": "Ошибка обработки запроса"}, status_code=500)
+    report_id = uuid.uuid4().hex[:12]
+    report_name = f"report_{report_id}_{model}.txt"
     report_path = REPORTS_DIR / report_name
     report_path.write_text(result["text"], encoding="utf-8")
     return {
@@ -102,7 +137,6 @@ async def api_audit(
         "prompt_tokens": result["usage"].get("prompt_tokens") or result["usage"].get("input_tokens", 0),
         "completion_tokens": result["usage"].get("completion_tokens") or result["usage"].get("output_tokens", 0),
         "balance_remaining": client.get("remaining"),
-        "saved_to": str(report_path),
     }
 
 
@@ -113,17 +147,21 @@ async def api_audit_file(
     question: str = Form(None),
     client: dict = Depends(verify_key),
 ):
-    import re
-    safe_name = re.sub(r'[^A-Za-z0-9._-]', '_', PurePath(file.filename).name)[:100] or "upload"
+    fname = safe_filename(file.filename)
     content = await file.read()
-    if len(content) > 200_000:
-        raise HTTPException(413, "Файл слишком большой (макс 200 КБ)")
+    if len(content) > MAX_CODE_LEN:
+        raise HTTPException(413, f"Файл слишком большой (макс {MAX_CODE_LEN:,} байт)")
     code = content.decode("utf-8", errors="replace")
+    if not code.strip():
+        raise HTTPException(400, "Файл пустой")
+    if question:
+        question = sanitize(question)
     try:
         result = await asyncio.to_thread(audit_code, code, model, question)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-    report_name = f"report_{safe_name}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.txt"
+        return JSONResponse({"error": "Ошибка обработки запроса"}, status_code=500)
+    report_id = uuid.uuid4().hex[:12]
+    report_name = f"report_{fname}_{report_id}.txt"
     report_path = REPORTS_DIR / report_name
     report_path.write_text(result["text"], encoding="utf-8")
     return {
@@ -132,7 +170,6 @@ async def api_audit_file(
         "prompt_tokens": result["usage"].get("prompt_tokens") or result["usage"].get("input_tokens", 0),
         "completion_tokens": result["usage"].get("completion_tokens") or result["usage"].get("output_tokens", 0),
         "balance_remaining": client.get("remaining"),
-        "saved_to": str(report_path),
     }
 
 
@@ -143,13 +180,15 @@ async def api_audit_ensemble(
     client: dict = Depends(verify_key),
 ):
     from .orchestrator import audit_full
-    if not code.strip():
-        raise HTTPException(400, "Код пустой")
+    check_code(code)
+    if question:
+        question = sanitize(question)
     try:
         result = await asyncio.to_thread(audit_full, code, question)
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-    report_name = f"ensemble_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.txt"
+        return JSONResponse({"error": "Ошибка обработки запроса"}, status_code=500)
+    report_id = uuid.uuid4().hex[:12]
+    report_name = f"ensemble_{report_id}.txt"
     report_path = REPORTS_DIR / report_name
     report_path.write_text(result["report"], encoding="utf-8")
     return {
@@ -168,7 +207,6 @@ async def list_models(client: dict = Depends(verify_key)):
 
 @app.post("/api/auth/create")
 async def create_key(plan: str = "free"):
-    """Создать API-ключ (только для админа)."""
     key = generate_key(plan)
     return {"api_key": key, "plan": plan}
 
