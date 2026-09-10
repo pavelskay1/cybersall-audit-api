@@ -6,104 +6,212 @@
     <title>CodeAudit AI — Аудит кода через AI за 30 секунд</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; color: #1a1a1a; }
-        .container { max-width: 1000px; margin: 0 auto; padding: 0 20px; }
-        .hero { background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%); color: white; padding: 80px 0; text-align: center; }
-        .hero h1 { font-size: 2.5rem; margin-bottom: 20px; }
-        .hero p { font-size: 1.2rem; opacity: 0.9; max-width: 600px; margin: 0 auto 30px; }
-        .hero .btn { background: #3b82f6; color: white; padding: 15px 40px; border-radius: 8px; text-decoration: none; font-size: 1.1rem; display: inline-block; }
-        .hero .btn:hover { background: #2563eb; }
-        .features { padding: 60px 0; background: #f8fafc; }
-        .features h2 { text-align: center; margin-bottom: 40px; font-size: 2rem; }
-        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 30px; }
-        .feature { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-        .feature h3 { color: #1e3a5f; margin-bottom: 15px; }
-        .pricing { padding: 60px 0; }
-        .pricing h2 { text-align: center; margin-bottom: 40px; font-size: 2rem; }
-        .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 30px; }
-        .price-card { background: white; border: 2px solid #e2e8f0; padding: 40px; border-radius: 12px; text-align: center; }
-        .price-card.popular { border-color: #3b82f6; position: relative; }
-        .price-card.popular::before { content: 'ПОПУЛЯРНЫЙ'; position: absolute; top: -12px; left: 50%; transform: translateX(-50%); background: #3b82f6; color: white; padding: 4px 16px; border-radius: 20px; font-size: 0.8rem; }
-        .price { font-size: 2.5rem; font-weight: bold; color: #1e3a5f; margin: 20px 0; }
-        .price span { font-size: 1rem; color: #666; }
-        .demo { padding: 60px 0; background: #f8fafc; }
-        .demo h2 { text-align: center; margin-bottom: 40px; font-size: 2rem; }
-        .demo-form { max-width: 700px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
-        .demo-form textarea { width: 100%; height: 200px; font-family: monospace; font-size: 14px; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; resize: vertical; }
-        .demo-form select { width: 100%; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; margin: 15px 0; }
-        .demo-form button { width: 100%; background: #3b82f6; color: white; padding: 15px; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; }
-        .demo-form button:hover { background: #2563eb; }
-        #result { margin-top: 20px; padding: 20px; background: #f1f5f9; border-radius: 8px; white-space: pre-wrap; font-size: 14px; display: none; }
-        .footer { background: #0d1b2a; color: white; padding: 40px 0; text-align: center; }
+        body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; color: #1a1a1a; background: #f8fafc; }
+        .container { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+        .hero { background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%); color: white; padding: 60px 0; text-align: center; }
+        .hero h1 { font-size: 2rem; margin-bottom: 15px; }
+        .hero p { font-size: 1.1rem; opacity: 0.9; max-width: 600px; margin: 0 auto 20px; }
+        .badge { display: inline-block; background: #3b82f6; color: white; padding: 6px 16px; border-radius: 20px; font-size: 0.9rem; margin-top: 10px; }
+        .features { padding: 40px 0; }
+        .features h2 { text-align: center; margin-bottom: 30px; font-size: 1.5rem; }
+        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+        .feature { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+        .feature h3 { color: #1e3a5f; margin-bottom: 10px; font-size: 1rem; }
+        .audit-section { padding: 40px 0; background: white; }
+        .audit-section h2 { text-align: center; margin-bottom: 20px; font-size: 1.5rem; }
+        .audit-form { max-width: 700px; margin: 0 auto; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-weight: 600; margin-bottom: 5px; color: #374151; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+        .form-group textarea { height: 200px; font-family: 'Courier New', monospace; font-size: 13px; resize: vertical; }
+        .form-row { display: flex; gap: 10px; }
+        .form-row .form-group { flex: 1; }
+        .btn { background: #3b82f6; color: white; border: none; padding: 12px 30px; border-radius: 6px; font-size: 1rem; cursor: pointer; width: 100%; }
+        .btn:hover { background: #2563eb; }
+        .btn:disabled { background: #9ca3af; cursor: not-allowed; }
+        .btn-ensemble { background: #7c3aed; }
+        .btn-ensemble:hover { background: #6d28d9; }
+        #result { margin-top: 20px; padding: 20px; background: #f1f5f9; border-radius: 8px; white-space: pre-wrap; font-size: 13px; font-family: 'Courier New', monospace; display: none; max-height: 500px; overflow-y: auto; }
+        .meta { color: #666; font-size: 12px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; }
+        .hint { background: #eff6ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px; color: #1e40af; }
+        .hint code { background: #dbeafe; padding: 2px 6px; border-radius: 3px; }
+        .hint-ensemble { background: #f5f3ff; border-color: #c4b5fd; color: #5b21b6; }
+        .hint-ensemble code { background: #ede9fe; }
+        .size-warn { color: #b91c1c; font-size: 12px; margin-top: 4px; display: none; }
+        .footer { background: #0d1b2a; color: white; padding: 30px 0; text-align: center; font-size: 0.9rem; }
     </style>
 </head>
 <body>
     <section class="hero">
         <div class="container">
-            <h1>🔍 CodeAudit AI</h1>
-            <p>Аудит кода через AI за 30 секунд. Находим баги, уязвимости и логические ошибки.</p>
-            <a href="#demo" class="btn">Попробовать бесплатно</a>
+            <h1>CodeAudit AI</h1>
+            <p>Аудит кода через 4 модели AI за 30 секунд. Находим баги, уязвимости и логические ошибки.</p>
+            <span class="badge">Claude + GPT + Kimi + DeepSeek</span>
         </div>
     </section>
+
     <section class="features">
         <div class="container">
-            <h2>Почему CodeAudit AI?</h2>
+            <h2>Как это работает</h2>
             <div class="features-grid">
-                <div class="feature"><h3>⏱️ 30 секунд</h3><p>Получите полный отчёт за 30 секунд вместо часов ручного код-ревью.</p></div>
-                <div class="feature"><h3>🎯 9 моделей AI</h3><p>GLM-5.2, GPT-6-Astra, Claude Opus 5 и другие — ансамбль для максимальной точности.</p></div>
-                <div class="feature"><h3>🔒 Безопасность</h3><p>Секреты автоматически скрываются перед отправкой. Ваш код под защитой.</p></div>
-                <div class="feature"><h3>📊 P0/P1/P2</h3><p>Структурированный отчёт с приоритизацией проблем: от критических до мелочей.</p></div>
-                <div class="feature"><h3>💻 Любой язык</h3><p>Python, C++, JavaScript, Go и другие — поддерживаем основные языки.</p></div>
-                <div class="feature"><h3>💰 Экономия</h3><p>В 10–50 раз дешевле ручного аудита. Первый аудит — бесплатно.</p></div>
+                <div class="feature">
+                    <h3>1. Вставляете код</h3>
+                    <p>Python, C++, JavaScript — любой язык. Код автоматически санитизируется (секреты скрываются).</p>
+                </div>
+                <div class="feature">
+                    <h3>2. AI анализирует</h3>
+                    <p>4 модели проверяют код параллельно: Claude, GPT, Kimi, DeepSeek. Каждая ищет свои проблемы.</p>
+                </div>
+                <div class="feature">
+                    <h3>3. Получаете отчёт</h3>
+                    <p>Структурированный отчёт с приоритетами P0 (критические), P1 (важные), P2 (мелочи).</p>
+                </div>
             </div>
         </div>
     </section>
-    <section class="pricing">
-        <div class="container">
-            <h2>Тарифы</h2>
-            <div class="pricing-grid">
-                <div class="price-card"><h3>Бесплатный</h3><div class="price">$0</div><p>1 аудит в день</p><ul style="list-style:none;margin-top:20px;text-align:left"><li>✓ До 500 строк</li><li>✓ 1 модель AI</li><li>✓ Базовый отчёт</li></ul></div>
-                <div class="price-card popular"><h3>Pro</h3><div class="price">$49<span>/мес</span></div><p>Без ограничений</p><ul style="list-style:none;margin-top:20px;text-align:left"><li>✓ Без ограничений</li><li>✓ 9 моделей AI</li><li>✓ Ансамбль моделей</li><li>✓ PDF-отчёт</li></ul></div>
-                <div class="price-card"><h3>Enterprise</h3><div class="price">$499</div><p>Разовый аудит проекта</p><ul style="list-style:none;margin-top:20px;text-align:left"><li>✓ Весь код проекта</li><li>✓ Все модели AI</li><li>✓ Детальный отчёт</li><li>✓ Поддержка 24/7</li></ul></div>
-            </div>
-        </div>
-    </section>
-    <section class="demo" id="demo">
+
+    <section class="audit-section">
         <div class="container">
             <h2>Попробуйте бесплатно</h2>
-            <div class="demo-form">
-                <textarea id="code" placeholder="Вставьте код сюда..."></textarea>
-                <select id="model">
-                    <option value="glm-5.2">GLM-5.2 (Zhipu)</option>
-                    <option value="gpt-6-astra">GPT-6-Astra</option>
-                    <option value="gpt-5.5">GPT-5.5</option>
-                    <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
-                    <option value="claude-opus-5">Claude Opus 5</option>
-                    <option value="gemini-3.8-flash">Gemini 3.8 Flash</option>
-                    <option value="grok-4.6">Grok 4.6</option>
-                    <option value="kimi-k3">Kimi K3</option>
-                    <option value="qwen3.8-max">Qwen 3.8 Max</option>
-                </select>
-                <button onclick="doAudit()">Аудитировать</button>
+
+            <div class="hint">
+                <strong>API-ключ для теста:</strong><br>
+                <code>n_C0T_V14g6YwF6WHI5AnrCvJgUd4XA_TPhno_Q6ILU</code><br>
+                <small>30 запросов/день. Скопируйте и вставьте в поле ниже.</small>
+            </div>
+
+            <div class="audit-form">
+                <div class="form-group">
+                    <label>API-ключ</label>
+                    <input type="text" id="apikey" placeholder="Вставьте API-ключ" value="n_C0T_V14g6YwF6WHI5AnrCvJgUd4XA_TPhno_Q6ILU">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Модель</label>
+                        <select id="model">
+                            <option value="glm-5.2">GLM-5.2 (быстро)</option>
+                            <option value="claude-opus-5">Claude Opus 5</option>
+                            <option value="gpt-6-astra">GPT-6-Astra</option>
+                            <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
+                            <option value="kimi-k3">Kimi K3</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Режим</label>
+                        <select id="mode">
+                            <option value="single">Одна модель</option>
+                            <option value="ensemble">Кросс-валидация (4 модели)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Код для аудита <span id="sizeInfo"></span></label>
+                    <textarea id="code" placeholder="Вставьте код сюда...">def divide(a, b):
+    return a / b
+
+def read_file(path):
+    f = open(path)
+    data = f.read()
+    return data</textarea>
+                    <div class="size-warn" id="sizeWarn">Превышен лимит 200 КБ. Код не будет отправлен.</div>
+                </div>
+
+                <div class="hint hint-ensemble">
+                    <strong>Кросс-валидация:</strong> Claude → GPT → Kimi → DeepSeek.
+                    Каждая модель видит ответ предыдущей. Дольше (~2 мин), но точнее.
+                </div>
+
+                <button class="btn" onclick="doAudit()" id="auditBtn">Аудитировать</button>
+
                 <div id="result"></div>
             </div>
         </div>
     </section>
-    <section class="footer"><div class="container"><p>© 2026 CodeAudit AI. Все права защищены.</p></div></section>
+
+    <section class="footer">
+        <div class="container">
+            <p>CodeAudit AI v0.4 — Аудит кода через AI</p>
+        </div>
+    </section>
+
     <script>
+    const MAX_CODE = 200000;
+    const codeEl = document.getElementById('code');
+    const sizeInfo = document.getElementById('sizeInfo');
+    const sizeWarn = document.getElementById('sizeWarn');
+
+    function updateSize() {
+        const len = codeEl.value.length;
+        sizeInfo.textContent = '(' + len.toLocaleString() + ' символов)';
+        sizeWarn.style.display = len > MAX_CODE ? 'block' : 'none';
+    }
+    codeEl.addEventListener('input', updateSize);
+    updateSize();
+
     async function doAudit() {
-        const code = document.getElementById('code').value;
+        const code = codeEl.value;
         const model = document.getElementById('model').value;
+        const mode = document.getElementById('mode').value;
+        const apikey = document.getElementById('apikey').value;
         const result = document.getElementById('result');
-        if (!code.trim()) { result.style.display='block'; result.innerHTML='❌ Вставьте код'; return; }
-        result.style.display='block'; result.innerHTML='⏳ Аудит через '+model+'...';
+        const btn = document.getElementById('auditBtn');
+
+        if (!apikey) { result.style.display='block'; result.textContent='Введите API-ключ'; return; }
+        if (!code.trim()) { result.style.display='block'; result.textContent='Вставьте код для аудита'; return; }
+        if (code.length > MAX_CODE) { result.style.display='block'; result.textContent='Код слишком большой (макс 200 КБ). Разбейте на части.'; return; }
+
+        btn.disabled = true;
+        btn.textContent = mode === 'ensemble' ? 'Кросс-валидация (4 модели)...' : 'Аудит...';
+        result.style.display = 'block';
+        result.textContent = mode === 'ensemble'
+            ? 'Запуск кросс-валидации: Claude → GPT → Kimi → DeepSeek...'
+            : 'Отправка кода на анализ через ' + model + '...';
+
+        const url = mode === 'ensemble' ? '/api/audit/ensemble' : '/api/audit';
+        const fd = new FormData();
+        fd.append('code', code);
+        if (mode === 'single') fd.append('model', model);
+
         try {
-            const fd = new FormData(); fd.append('code', code); fd.append('model', model);
-            const r = await fetch('/api/audit', {method:'POST', body:fd});
+            const r = await fetch(url, {
+                method: 'POST',
+                headers: { 'X-API-Key': apikey },
+                body: fd
+            });
             const data = await r.json();
-            if (data.error) { result.innerHTML='❌ '+data.error; }
-            else { result.innerHTML='<strong>Модель:</strong> '+data.model+'<br><strong>Токены:</strong> '+(data.prompt_tokens||0)+' in / '+(data.completion_tokens||0)+' out<br><br><pre>'+data.report+'</pre>'; }
-        } catch(e) { result.innerHTML='❌ Ошибка: '+e.message; }
+
+            if (data.error || data.detail) {
+                result.textContent = 'Ошибка: ' + (data.error || data.detail);
+            } else {
+                let metaText = '';
+                if (mode === 'ensemble') {
+                    metaText = 'Блоков: ' + (data.blocks||'?') +
+                        ' | Время: ' + (data.elapsed_sec||'?') + ' сек' +
+                        ' | Качество: ' + (data.quality_ok ? 'OK' : 'Нужна доработка') +
+                        ' | Баланс: ' + (data.balance_remaining||'?');
+                } else {
+                    metaText = 'Модель: ' + data.model +
+                        ' | Баланс: ' + (data.balance_remaining||'?') + ' запросов' +
+                        ' | Токены: ' + (data.prompt_tokens||0) + ' in / ' + (data.completion_tokens||0) + ' out';
+                }
+                const meta = document.createElement('div');
+                meta.className = 'meta';
+                meta.textContent = metaText;
+                const pre = document.createElement('pre');
+                pre.style.whiteSpace = 'pre-wrap';
+                pre.style.fontFamily = "'Courier New', monospace";
+                pre.style.fontSize = '13px';
+                pre.textContent = data.report;
+                result.replaceChildren(meta, pre);
+            }
+        } catch(e) {
+            result.textContent = 'Ошибка соединения: ' + e.message;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Аудитировать';
+        }
     }
     </script>
 </body>
