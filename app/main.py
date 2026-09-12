@@ -40,14 +40,18 @@ def safe_filename(raw: str, max_len: int = 100) -> str:
 
 
 def check_code(code: str, client_key: str = None):
+    """Валидация входного кода для аудита.
+
+    Код аудита НЕ исполняется на сервере: он санитизируется и уходит в LLM.
+    Запрещённые паттерны (import os, eval и т.п.) — это обычный материал для аудита,
+    поэтому статический анализ и бан здесь НЕ применяются.
+    Бан и sandbox-изоляция остаются только при реальном исполнении кода
+    (см. sandbox.run_in_sandbox).
+    """
     if not code.strip():
         raise HTTPException(400, "Код пустой")
     if len(code) > MAX_CODE_LEN:
         raise HTTPException(413, f"Код слишком большой (макс {MAX_CODE_LEN:,} символов)")
-    safe, reason = static_analyze(code)
-    if not safe:
-        ban_client(client_key, reason)
-        raise HTTPException(403, f"Заблокировано: {reason}")
 
 
 @app.get("/")
