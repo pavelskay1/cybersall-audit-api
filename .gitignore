@@ -6,3 +6,8 @@ secret/api_keys.json
 reports/
 logs/
 *.log
+secret/
+*.bak
+*.bak2
+*.bak3
+landing/test_code.py

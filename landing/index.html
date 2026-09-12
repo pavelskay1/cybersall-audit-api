@@ -1,218 +1,1404 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CodeAudit AI — Аудит кода через AI за 30 секунд</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; color: #1a1a1a; background: #f8fafc; }
-        .container { max-width: 900px; margin: 0 auto; padding: 0 20px; }
-        .hero { background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%); color: white; padding: 60px 0; text-align: center; }
-        .hero h1 { font-size: 2rem; margin-bottom: 15px; }
-        .hero p { font-size: 1.1rem; opacity: 0.9; max-width: 600px; margin: 0 auto 20px; }
-        .badge { display: inline-block; background: #3b82f6; color: white; padding: 6px 16px; border-radius: 20px; font-size: 0.9rem; margin-top: 10px; }
-        .features { padding: 40px 0; }
-        .features h2 { text-align: center; margin-bottom: 30px; font-size: 1.5rem; }
-        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
-        .feature { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-        .feature h3 { color: #1e3a5f; margin-bottom: 10px; font-size: 1rem; }
-        .audit-section { padding: 40px 0; background: white; }
-        .audit-section h2 { text-align: center; margin-bottom: 20px; font-size: 1.5rem; }
-        .audit-form { max-width: 700px; margin: 0 auto; }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; font-weight: 600; margin-bottom: 5px; color: #374151; }
-        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
-        .form-group textarea { height: 200px; font-family: 'Courier New', monospace; font-size: 13px; resize: vertical; }
-        .form-row { display: flex; gap: 10px; }
-        .form-row .form-group { flex: 1; }
-        .btn { background: #3b82f6; color: white; border: none; padding: 12px 30px; border-radius: 6px; font-size: 1rem; cursor: pointer; width: 100%; }
-        .btn:hover { background: #2563eb; }
-        .btn:disabled { background: #9ca3af; cursor: not-allowed; }
-        .btn-ensemble { background: #7c3aed; }
-        .btn-ensemble:hover { background: #6d28d9; }
-        #result { margin-top: 20px; padding: 20px; background: #f1f5f9; border-radius: 8px; white-space: pre-wrap; font-size: 13px; font-family: 'Courier New', monospace; display: none; max-height: 500px; overflow-y: auto; }
-        .meta { color: #666; font-size: 12px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; }
-        .hint { background: #eff6ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px; color: #1e40af; }
-        .hint code { background: #dbeafe; padding: 2px 6px; border-radius: 3px; }
-        .hint-ensemble { background: #f5f3ff; border-color: #c4b5fd; color: #5b21b6; }
-        .hint-ensemble code { background: #ede9fe; }
-        .size-warn { color: #b91c1c; font-size: 12px; margin-top: 4px; display: none; }
-        .footer { background: #0d1b2a; color: white; padding: 30px 0; text-align: center; font-size: 0.9rem; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cybersall AI Agent — AI Security Agent</title>
+<style>
+:root{
+  --bg-0:#05070d;
+  --bg-1:#0a0f1c;
+  --bg-2:#111827;
+  --bg-3:#1a2236;
+  --border:#1f2a44;
+  --text:#e6ecff;
+  --text-dim:#8a96b3;
+  --text-mute:#5a6582;
+  --accent:#5b8cff;
+  --accent-2:#a855f7;
+  --accent-3:#22d3ee;
+  --accent-grad:linear-gradient(135deg,#5b8cff 0%,#a855f7 50%,#22d3ee 100%);
+  --danger:#ef4444;
+  --warn:#f59e0b;
+  --info:#6b7280;
+  --good:#10b981;
+  --gold:#FFD700;
+  --mono:'JetBrains Mono','Fira Code','SF Mono',Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--sans);
+  background:var(--bg-0);
+  color:var(--text);
+  line-height:1.6;
+  overflow-x:hidden;
+  min-height:100vh;
+}
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  background-image:url('pcb-bg.jpg');
+  background-size:cover;
+  background-position:center;
+  background-repeat:no-repeat;
+  opacity:0.15;
+  pointer-events:none;
+  z-index:0;
+  filter:sepia(0.3) saturate(1.5);
+}.container{max-width:1200px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+nav{
+  position:sticky;
+  top:0;
+  z-index:100;
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  background:rgba(5,7,13,0.7);
+  border-bottom:1px solid var(--border);
+}
+.nav-inner{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:16px 24px;
+  max-width:1200px;
+  margin:0 auto;
+}
+.logo{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-weight:700;
+  font-size:16px;
+  letter-spacing:-0.01em;
+}
+.logo-icon{
+  width:32px;
+  height:32px;
+  background:var(--accent-grad);
+  border-radius:8px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:0 4px 20px rgba(91,140,255,0.3);
+}
+.nav-links{display:flex;gap:28px}
+.nav-links a{
+  color:var(--text-dim);
+  text-decoration:none;
+  font-size:14px;
+  font-weight:500;
+  transition:color 0.2s;
+}
+.nav-links a:hover{color:var(--text)}
+@media(max-width:768px){.nav-links{display:none}}
+
+.hero{
+  padding:120px 0 80px;
+  text-align:center;
+  position:relative;
+}
+.hero-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 14px;
+  background:rgba(91,140,255,0.08);
+  border:1px solid rgba(91,140,255,0.25);
+  border-radius:999px;
+  font-size:13px;
+  color:var(--accent);
+  margin-bottom:28px;
+  animation:fadeUp 0.6s ease both;
+}
+.hero-badge .dot{
+  width:6px;height:6px;
+  background:var(--good);
+  border-radius:50%;
+  box-shadow:0 0 8px var(--good);
+  animation:pulse 2s infinite;
+}
+h1{
+  font-size:clamp(40px,7vw,84px);
+  font-weight:800;
+  letter-spacing:-0.03em;
+  line-height:1.05;
+  background:var(--accent-grad);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+  margin-bottom:24px;
+  animation:fadeUp 0.7s 0.1s ease both;
+}
+
+.hero-features{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:20px}
+.hf-item{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid var(--line);border-radius:20px;font-size:13px;color:var(--text-dim);background:rgba(255,255,255,.03);transition:all .2s}
+.hf-item:hover{border-color:var(--accent);color:var(--accent);background:rgba(91,140,255,.05)}
+.hf-item svg{opacity:.6}
+.hf-item:hover svg{opacity:1;stroke:var(--accent)}
+.hero-sub{
+  font-size:clamp(16px,2vw,20px);
+  color:var(--text-dim);
+  max-width:620px;
+  margin:0 auto 48px;
+  animation:fadeUp 0.7s 0.2s ease both;
+}
+.cta{
+  display:inline-flex;
+  align-items:center;
+  gap:10px;
+  padding:16px 32px;
+  background:var(--accent-grad);
+  background-size:200% 200%;
+  color:#fff;
+  border:none;
+  border-radius:12px;
+  font-size:16px;
+  font-weight:600;
+  cursor:pointer;
+  text-decoration:none;
+  box-shadow:0 10px 40px rgba(91,140,255,0.35);
+  transition:transform 0.2s,box-shadow 0.2s;
+  animation:fadeUp 0.7s 0.3s ease both,gradientShift 6s ease infinite;
+}
+.cta:hover{
+  transform:translateY(-2px);
+  box-shadow:0 15px 50px rgba(168,85,247,0.45);
+}
+.cta svg{transition:transform 0.2s}
+.cta:hover svg{transform:translateX(4px)}
+
+section{padding:80px 0;position:relative}
+.section-title{
+  font-size:clamp(28px,4vw,40px);
+  font-weight:700;
+  letter-spacing:-0.02em;
+  margin-bottom:12px;
+}
+.section-sub{
+  color:var(--text-dim);
+  margin-bottom:40px;
+  font-size:16px;
+}
+
+.audit-card{
+  background:linear-gradient(180deg,var(--bg-1),var(--bg-0));
+  border:1px solid var(--border);
+  border-radius:20px;
+  padding:32px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.4);
+}
+.audit-row{display:flex;flex-direction:column;gap:8px;margin-bottom:24px}
+.audit-label{
+  font-size:13px;
+  color:var(--text-dim);
+  font-weight:500;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+}
+.input{
+  width:100%;
+  background:var(--bg-2);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:14px 16px;
+  color:var(--text);
+  font-size:15px;
+  font-family:var(--sans);
+  transition:border 0.2s,box-shadow 0.2s;
+}
+.input:focus{
+  outline:none;
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(91,140,255,0.15);
+}
+.code-area{
+  width:100%;
+  height:350px;
+  background:#03050a;
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:16px;
+  color:#d6e0ff;
+  font-family:var(--mono);
+  font-size:14px;
+  line-height:1.6;
+  resize:vertical;
+  transition:border 0.2s,box-shadow 0.2s;
+  tab-size:2;
+}
+.code-area:focus{
+  outline:none;
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(91,140,255,0.15);
+}
+.code-toolbar{
+  display:flex;
+  gap:8px;
+  margin-top:10px;
+  flex-wrap:wrap;
+}
+.toolbar-btn{
+  background:transparent;
+  border:1px solid var(--border);
+  color:var(--text-dim);
+  padding:6px 12px;
+  border-radius:6px;
+  font-size:12px;
+  cursor:pointer;
+  transition:all 0.2s;
+  font-family:var(--sans);
+}
+.toolbar-btn:hover{
+  color:var(--text);
+  border-color:var(--accent);
+}
+.audit-submit{
+  margin-top:24px;
+  width:100%;
+  padding:18px;
+  background:var(--accent-grad);
+  background-size:200% 200%;
+  border:none;
+  border-radius:12px;
+  color:#fff;
+  font-size:17px;
+  font-weight:600;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+  box-shadow:0 10px 40px rgba(91,140,255,0.3);
+  transition:transform 0.2s,box-shadow 0.2s;
+  animation:gradientShift 6s ease infinite;
+}
+.audit-submit:hover:not(:disabled){
+  transform:translateY(-2px);
+  box-shadow:0 15px 50px rgba(168,85,247,0.45);
+}
+.audit-submit:disabled{
+  opacity:0.6;
+  cursor:not-allowed;
+}
+
+.pipeline{
+  margin-top:32px;
+  background:rgba(91,140,255,0.04);
+  border:1px solid rgba(91,140,255,0.2);
+  border-radius:14px;
+  padding:24px;
+  display:none;
+}
+.pipeline.active{display:block;animation:fadeIn 0.4s ease}
+.pipeline-title{
+  font-size:13px;
+  color:var(--text-dim);
+  text-transform:uppercase;
+  letter-spacing:0.08em;
+  margin-bottom:18px;
+  font-weight:600;
+}
+.pipeline-steps{display:flex;flex-direction:column;gap:12px}
+.pstep{
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:14px 16px;
+  background:rgba(255,255,255,0.02);
+  border:1px solid var(--border);
+  border-radius:10px;
+  opacity:0;
+  transform:translateX(-12px);
+  transition:all 0.4s cubic-bezier(0.16,1,0.3,1);
+}
+.pstep.show{opacity:1;transform:translateX(0)}
+.pstep.done{border-color:rgba(16,185,129,0.3);background:rgba(16,185,129,0.05)}
+.pstep-num{
+  width:28px;height:28px;
+  border-radius:50%;
+  background:var(--bg-3);
+  border:1px solid var(--border);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:13px;
+  font-weight:600;
+  color:var(--text-dim);
+  flex-shrink:0;
+  transition:all 0.3s;
+}
+.pstep.done .pstep-num{
+  background:var(--good);
+  border-color:var(--good);
+  color:#fff;
+}
+.pstep-text{flex:1;font-size:15px;color:var(--text-dim)}
+.pstep.done .pstep-text{color:var(--text)}
+.pstep-check{
+  width:24px;height:24px;
+  border-radius:50%;
+  background:var(--good);
+  color:#fff;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  font-size:14px;
+  font-weight:bold;
+  animation:pop 0.3s ease;
+}
+.pstep.done .pstep-check{display:flex}
+.pstep.loading .pstep-num{
+  background:var(--accent);
+  border-color:var(--accent);
+  animation:spin 1s linear infinite;
+  border-top-color:transparent;
+}
+
+.result{
+  margin-top:32px;
+  display:none;
+}
+.result.active{display:block;animation:fadeIn 0.5s ease}
+.result-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  margin-bottom:20px;
+  flex-wrap:wrap;
+  gap:12px;
+}
+.result-title{
+  font-size:24px;
+  font-weight:700;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.result-title-icon{
+  width:36px;height:36px;
+  background:var(--accent-grad);
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.severity-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:12px;
+  margin-bottom:24px;
+}
+@media(max-width:640px){.severity-grid{grid-template-columns:1fr}}
+.severity-card{
+  background:var(--bg-1);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:18px;
+  position:relative;
+  overflow:hidden;
+}
+.severity-card::before{
+  content:"";
+  position:absolute;
+  top:0;left:0;right:0;
+  height:3px;
+}
+.severity-card.crit::before{background:var(--danger)}
+.severity-card.warn::before{background:var(--warn)}
+.severity-card.info::before{background:var(--info)}
+.severity-label{
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:0.06em;
+  color:var(--text-dim);
+  margin-bottom:6px;
+}
+.severity-count{
+  font-size:32px;
+  font-weight:700;
+  font-family:var(--mono);
+}
+.severity-card.crit .severity-count{color:var(--danger)}
+.severity-card.warn .severity-count{color:var(--warn)}
+.severity-card.info .severity-count{color:var(--text-mute)}
+
+.report-box{
+  background:#03050a;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:20px;
+  font-family:var(--mono);
+  font-size:13.5px;
+  line-height:1.7;
+  color:#d6e0ff;
+  max-height:500px;
+  overflow-y:auto;
+  white-space:pre-wrap;
+  word-wrap:break-word;
+}
+.report-box::-webkit-scrollbar{width:8px}
+.report-box::-webkit-scrollbar-track{background:var(--bg-1)}
+.report-box::-webkit-scrollbar-thumb{background:var(--bg-3);border-radius:4px}
+
+.result-actions{
+  display:flex;
+  gap:12px;
+  margin-top:16px;
+  flex-wrap:wrap;
+}
+.action-btn{
+  padding:10px 18px;
+  background:var(--bg-2);
+  border:1px solid var(--border);
+  color:var(--text);
+  border-radius:8px;
+  font-size:14px;
+  cursor:pointer;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  transition:all 0.2s;
+  font-family:var(--sans);
+}
+.action-btn:hover{
+  border-color:var(--accent);
+  background:var(--bg-3);
+}
+.meta-row{
+  display:flex;
+  gap:24px;
+  margin-top:20px;
+  padding-top:20px;
+  border-top:1px solid var(--border);
+  flex-wrap:wrap;
+  font-size:13px;
+  color:var(--text-dim);
+}
+.meta-item{display:flex;align-items:center;gap:6px}
+.meta-item strong{color:var(--text);font-weight:600}
+
+.pricing-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:20px;
+  margin-top:40px;
+}
+@media(max-width:860px){.pricing-grid{grid-template-columns:1fr;max-width:420px;margin-left:auto;margin-right:auto}}
+.price-card{
+  background:linear-gradient(180deg,var(--bg-1),var(--bg-0));
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:32px 28px;
+  position:relative;
+  transition:transform 0.3s,border-color 0.3s;
+}
+.price-card:hover{transform:translateY(-4px)}
+.price-card.featured{
+  border-color:rgba(168,85,247,0.4);
+  background:linear-gradient(180deg,rgba(168,85,247,0.08),var(--bg-0));
+  box-shadow:0 20px 60px rgba(168,85,247,0.15);
+}
+.price-badge{
+  position:absolute;
+  top:-12px;
+  right:24px;
+  background:var(--accent-grad);
+  color:#fff;
+  padding:4px 12px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+}
+.price-name{
+  font-size:14px;
+  color:var(--text-dim);
+  text-transform:uppercase;
+  letter-spacing:0.06em;
+  margin-bottom:12px;
+  font-weight:600;
+}
+.price-amount{
+  font-size:42px;
+  font-weight:800;
+  letter-spacing:-0.02em;
+  margin-bottom:4px;
+}
+.price-amount .per{font-size:14px;color:var(--text-dim);font-weight:500}
+.price-quota{
+  font-size:14px;
+  color:var(--text-dim);
+  margin-bottom:24px;
+}
+.price-features{
+  list-style:none;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  margin-bottom:24px;
+}
+.price-features li{
+  font-size:14px;
+  color:var(--text-dim);
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.price-features li::before{
+  content:"✓";
+  color:var(--good);
+  font-weight:bold;
+}
+.price-btn{
+  width:100%;
+  padding:12px;
+  background:transparent;
+  border:1px solid var(--border);
+  color:var(--text);
+  border-radius:10px;
+  font-size:14px;
+  font-weight:600;
+  cursor:pointer;
+  transition:all 0.2s;
+  font-family:var(--sans);
+}
+.price-card.featured .price-btn{
+  background:var(--accent-grad);
+  border:none;
+  color:#fff;
+}
+.price-btn:hover{
+  transform:translateY(-1px);
+  border-color:var(--accent);
+}
+
+.faq-list{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  max-width:780px;
+  margin:40px auto 0;
+}
+details{
+  background:var(--bg-1);
+  border:1px solid var(--border);
+  border-radius:12px;
+  overflow:hidden;
+  transition:border 0.2s;
+}
+details[open]{border-color:rgba(91,140,255,0.3)}
+details summary{
+  padding:18px 22px;
+  cursor:pointer;
+  font-weight:600;
+  font-size:15px;
+  list-style:none;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  user-select:none;
+}
+details summary::-webkit-details-marker{display:none}
+details summary::after{
+  content:"+";
+  color:var(--text-dim);
+  font-size:22px;
+  font-weight:300;
+  transition:transform 0.3s;
+}
+details[open] summary::after{transform:rotate(45deg)}
+details .answer{
+  padding:0 22px 20px;
+  color:var(--text-dim);
+  font-size:14.5px;
+  line-height:1.7;
+}
+
+footer{
+  border-top:1px solid var(--border);
+  padding:32px 0;
+  text-align:center;
+  color:var(--text-mute);
+  font-size:13px;
+  margin-top:40px;
+}
+footer .v{color:var(--text-dim)}
+
+@keyframes fadeUp{
+  from{opacity:0;transform:translateY(20px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pulse{
+  0%,100%{opacity:1}
+  50%{opacity:0.4}
+}
+@keyframes gradientShift{
+  0%,100%{background-position:0% 50%}
+  50%{background-position:100% 50%}
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pop{
+  0%{transform:scale(0)}
+  50%{transform:scale(1.2)}
+  100%{transform:scale(1)}
+}
+
+.toast{
+  position:fixed;
+  bottom:32px;
+  left:50%;
+  transform:translateX(-50%) translateY(100px);
+  background:var(--bg-3);
+  border:1px solid var(--border);
+  color:var(--text);
+  padding:12px 20px;
+  border-radius:10px;
+  font-size:14px;
+  box-shadow:0 10px 40px rgba(0,0,0,0.5);
+  z-index:1000;
+  opacity:0;
+  transition:all 0.3s cubic-bezier(0.16,1,0.3,1);
+}
+.toast.show{
+  opacity:1;
+  transform:translateX(-50%) translateY(0);
+}
+</style>
 </head>
 <body>
-    <section class="hero">
-        <div class="container">
-            <h1>CodeAudit AI</h1>
-            <p>Аудит кода через 4 модели AI за 30 секунд. Находим баги, уязвимости и логические ошибки.</p>
-            <span class="badge">Claude + GPT + Kimi + DeepSeek</span>
+
+<nav>
+  <div class="nav-inner">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <span>Cybersall AI Agent</span>
+    </div>
+    <div class="nav-links">
+      <a href="#audit">Аудит</a>
+      <a href="#pricing">Тарифы</a>
+      <a href="#faq">FAQ</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      <span class="dot"></span>
+      <span>Агент онлайн · v1.0</span>
+    </div>
+    <h1>AI Security Agent</h1>
+    <p class="hero-sub">Найдём ошибки, которые пропускают другие.</p>
+    <div class="hero-features">
+      <span class="hf-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Гибридный аудит</span>
+      <span class="hf-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Любой объём кода</span>
+      <span class="hf-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Ваши секреты под защитой</span>
+      <span class="hf-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Изоляция кода</span>
+      <span class="hf-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Python → C++ конвертер</span>
+      <span class="hf-item"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Приоритезация ошибок</span>
+    </div>
+    <a href="#audit" class="cta">
+      Запустить аудит
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="5" y1="12" x2="19" y2="12"/>
+        <polyline points="12 5 19 12 12 19"/>
+      </svg>
+    </a>
+  </div>
+</header>
+
+
+<section style="padding:60px 0;background:var(--bg-0);position:relative">
+  <div class="container" style="max-width:900px;text-align:center">
+    <h2 style="font-size:clamp(1.8rem,4vw,2.8rem);font-weight:800;margin-bottom:24px;background:var(--accent-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Каждая строка проходит мультиуровневую проверку</h2>
+    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+      <div style="padding:16px 24px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);min-width:140px">
+        <div style="font-size:24px;font-weight:700;color:var(--accent)">①</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-top:4px">Первичный анализ</div>
+      </div>
+      <div style="padding:16px 24px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);min-width:140px">
+        <div style="font-size:24px;font-weight:700;color:var(--accent-2)">②</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-top:4px">Глубокая проверка</div>
+      </div>
+      <div style="padding:16px 24px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);min-width:140px">
+        <div style="font-size:24px;font-weight:700;color:var(--accent-3)">③</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-top:4px">Кросс-проверка</div>
+      </div>
+      <div style="padding:16px 24px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);min-width:140px">
+        <div style="font-size:24px;font-weight:700;color:var(--good)">④</div>
+        <div style="font-size:13px;color:var(--text-dim);margin-top:4px">Итоговый вердикт</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="audit" style="padding:80px 0">
+  <div class="container">
+    <div style="text-align:center;margin-bottom:40px">
+      <h2 style="font-size:clamp(28px,4vw,40px);font-weight:800;letter-spacing:-.02em;background:var(--accent-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0 0 8px">Code Audit</h2>
+      <p style="color:var(--text-dim);font-size:clamp(14px,1.5vw,16px);margin:0;opacity:.9">Production-ready аудит кода с приоритезацией ошибок</p>
+    </div>
+  <div class="container">
+    <div class="audit-card">
+      <div class="audit-row">
+        <label class="audit-label" for="question">Что искать?</label>
+        <input type="text" id="question" class="input" placeholder="уязвимости, баги, стиль..." value="Найди уязвимости, ошибки логики и проблемы с производительностью">
+      </div>
+
+      <div class="audit-row">
+        <label class="audit-label" for="code">Код для анализа</label>
+        <textarea id="code" class="code-area" placeholder="Вставьте код..." spellcheck="false"></textarea>
+        <div class="code-toolbar">
+          <button type="button" class="toolbar-btn" onclick="pasteTestCode()">📋 Тестовый код</button>
+          <button type="button" class="toolbar-btn" onclick="clearCode()">🗑 Очистить</button>
         </div>
-    </section>
+        <div id="timeHint" style="margin-top:10px;font-size:13px;color:var(--text-mute);text-align:right">⏱ Оценка времени: —</div>
+      </div>
 
-    <section class="features">
-        <div class="container">
-            <h2>Как это работает</h2>
-            <div class="features-grid">
-                <div class="feature">
-                    <h3>1. Вставляете код</h3>
-                    <p>Python, C++, JavaScript — любой язык. Код автоматически санитизируется (секреты скрываются).</p>
-                </div>
-                <div class="feature">
-                    <h3>2. AI анализирует</h3>
-                    <p>4 модели проверяют код параллельно: Claude, GPT, Kimi, DeepSeek. Каждая ищет свои проблемы.</p>
-                </div>
-                <div class="feature">
-                    <h3>3. Получаете отчёт</h3>
-                    <p>Структурированный отчёт с приоритетами P0 (критические), P1 (важные), P2 (мелочи).</p>
-                </div>
-            </div>
+      <input type="hidden" id="apikey" value="sk-cybersall-default-key">
+
+      <button type="button" class="audit-submit" id="submitBtn" onclick="doAudit()">
+        <span>🔍</span>
+        <span>Запустить аудит</span>
+      </button>
+      <div style="text-align:center;margin-top:8px">
+        <button type="button" onclick="showRules('audit')" style="background:none;border:none;color:var(--text-mute);font-size:12px;cursor:pointer;text-decoration:underline">Правила и ограничения</button>
+      </div>
+
+      <div class="pipeline" id="pipeline">
+        <div class="pipeline-title">Пайплайн анализа</div>
+        <div class="pipeline-steps">
+          <div class="pstep" data-step="1">
+            <div class="pstep-num">1</div>
+            <div class="pstep-text">Сканирование кода...</div>
+            <div class="pstep-check">✓</div>
+          </div>
+          <div class="pstep" data-step="2">
+            <div class="pstep-num">2</div>
+            <div class="pstep-text">Анализ уязвимостей...</div>
+            <div class="pstep-check">✓</div>
+          </div>
+          <div class="pstep" data-step="3">
+            <div class="pstep-num">3</div>
+            <div class="pstep-text">Кросс-валидация...</div>
+            <div class="pstep-check">✓</div>
+          </div>
+          <div class="pstep" data-step="4">
+            <div class="pstep-num">4</div>
+            <div class="pstep-text">Формирование отчёта...</div>
+            <div class="pstep-check">✓</div>
+          </div>
         </div>
-    </section>
+      </div>
 
-    <section class="audit-section">
-        <div class="container">
-            <h2>Попробуйте бесплатно</h2>
-
-            <div class="hint">
-                <strong>API-ключ для теста:</strong><br>
-                <code>n_C0T_V14g6YwF6WHI5AnrCvJgUd4XA_TPhno_Q6ILU</code><br>
-                <small>30 запросов/день. Скопируйте и вставьте в поле ниже.</small>
+      <div class="result" id="result">
+        <div class="result-header">
+          <div class="result-title">
+            <div class="result-title-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
             </div>
+            <span>Отчёт агента</span>
+          </div>
+          <button type="button" class="action-btn" onclick="copyReport()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            Копировать отчёт
+          </button>
+          <div class="email-row" style="display:flex;gap:8px;margin-top:12px;align-items:center">
+            <input type="email" id="auditEmail" placeholder="email для отчёта" style="flex:1;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg-2);color:var(--text);font-size:13px">
+            <button type="button" class="action-btn" onclick="sendAuditEmail()" id="sendAuditBtn" style="white-space:nowrap">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              Отправить PDF
+            </button>
+          </div>
+        </div>
 
-            <div class="audit-form">
-                <div class="form-group">
-                    <label>API-ключ</label>
-                    <input type="text" id="apikey" placeholder="Вставьте API-ключ" value="n_C0T_V14g6YwF6WHI5AnrCvJgUd4XA_TPhno_Q6ILU">
-                </div>
+        <div class="severity-grid">
+          <div class="severity-card crit">
+            <div class="severity-label">Критичные</div>
+            <div class="severity-count" id="cnt-crit">0</div>
+          </div>
+          <div class="severity-card warn">
+            <div class="severity-label">Важные</div>
+            <div class="severity-count" id="cnt-warn">0</div>
+          </div>
+          <div class="severity-card info">
+            <div class="severity-label">Информационные</div>
+            <div class="severity-count" id="cnt-info">0</div>
+          </div>
+        </div>
 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Модель</label>
-                        <select id="model">
-                            <option value="glm-5.2">GLM-5.2 (быстро)</option>
-                            <option value="claude-opus-5">Claude Opus 5</option>
-                            <option value="gpt-6-astra">GPT-6-Astra</option>
-                            <option value="deepseek-v4-pro">DeepSeek V4 Pro</option>
-                            <option value="kimi-k3">Kimi K3</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Режим</label>
-                        <select id="mode">
-                            <option value="single">Одна модель</option>
-                            <option value="ensemble">Кросс-валидация (4 модели)</option>
-                        </select>
-                    </div>
-                </div>
+        <div class="report-box" id="reportBox"></div>
 
-                <div class="form-group">
-                    <label>Код для аудита <span id="sizeInfo"></span></label>
-                    <textarea id="code" placeholder="Вставьте код сюда...">def divide(a, b):
-    return a / b
+        <div class="meta-row">
+          <div class="meta-item">⏱ Время анализа: <strong id="meta-time">—</strong></div>
+          <div class="meta-item">📦 Блоков кода: <strong id="meta-blocks">—</strong></div>
+          <div class="meta-item">🔧 Модель: <strong>Ensemble v1.0</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
+
+<section style="padding:20px 0;background:var(--bg-0)">
+  <div class="container" style="max-width:800px">
+    <div style="display:flex;gap:12px;align-items:flex-start;padding:16px 20px;border:1px solid rgba(255,184,77,.2);border-radius:10px;background:rgba(255,184,77,.04)">
+      <div style="flex-shrink:0;width:28px;height:28px;border-radius:50%;background:rgba(255,184,77,.15);display:flex;align-items:center;justify-content:center;color:#ffb84d;font-size:14px;font-weight:700">?</div>
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.6">
+        <strong style="color:#ffb84d">Важно:</strong> Код анализируется через внешний API провайдеров AI. Данные не используются для обучения моделей, но могут храниться до 30 дней. Секреты вырезаются до отправки. Сервис не несёт ответственности за утечку данных при использовании публичных API. Для конфиденциального кода рекомендуется Zero Data Retention или on-premise.
+      </div>
+    </div>
+  </div>
+  </div>
+</section>
+
+<section id="converter" style="padding:80px 0">
+  <div class="container">
+    <div style="text-align:center;margin-bottom:40px">
+      <h2 style="font-size:clamp(28px,4vw,40px);font-weight:800;letter-spacing:-.02em;background:var(--accent-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0 0 8px">Python → C++ Конвертер</h2>
+      <p style="color:var(--text-dim);font-size:clamp(14px,1.5vw,16px);margin:0;opacity:.9">Конвертируйте Python-стратегии в production-ready C++ за 2–4 минуты</p>
+    </div>
+    <div class="audit-card">
+      <div class="audit-row">
+        <label class="audit-label" for="convert_question">Контекст (опционально)</label>
+        <input type="text" id="convert_question" class="input" placeholder="Например: HFT стратегия для MOEX, zero-allocation">
+      </div>
+      <div class="audit-row">
+        <label class="audit-label" for="convert_code">Python код</label>
+        <textarea id="convert_code" class="code-area" placeholder="Вставьте Python код для конвертации..." spellcheck="false"></textarea>
+      </div>
+      <div class="audit-row">
+        <label class="audit-label" for="convertEmail">Email для PDF-отчёта</label>
+        <input type="email" id="convertEmail" class="input" placeholder="example@mail.com">
+      </div>
+      <button type="button" class="audit-submit" onclick="doConvert()" id="convertBtn">
+        <span>⚡</span>
+        <span>Конвертировать в C++</span>
+      </button>
+      <div style="text-align:center;margin-top:8px">
+        <button type="button" onclick="showRules('convert')" style="background:none;border:none;color:var(--text-mute);font-size:12px;cursor:pointer;text-decoration:underline">Правила и ограничения</button>
+      </div>
+      <div class="spinner" id="convert_spinner">
+        <div class="spinner-ring"></div>
+        <div class="spinner-text">Конвертация через AI-пайплайн...</div>
+      </div>
+      <div class="result" id="convert_result_wrap" style="display:none">
+        <div class="result-header">
+          <div class="result-title">
+            <div class="result-title-icon" style="background:linear-gradient(135deg,#7c5cff,#5b8cff)">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            </div>
+            <span>C++ результат</span>
+          </div>
+          <button type="button" class="action-btn" onclick="copyConvertResult()" id="convertCopyBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Копировать C++
+          </button>
+        </div>
+        <div class="meta-row">
+          <div class="meta-item" id="convert_meta">⏱ Время: —</div>
+        </div>
+        <div class="report-box" id="convert_result"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="container">
+    <h2 class="section-title" style="text-align:center">Тарифы</h2>
+    <div style="text-align:center"><div style="display:inline-flex;align-items:center;gap:6px;margin-bottom:8px">
+        <svg width="24" height="24" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48" fill="#FFD700" stroke="#B8860B" stroke-width="3"/><circle cx="50" cy="50" r="38" fill="none" stroke="#B8860B" stroke-width="2" opacity="0.4"/><text x="50" y="58" text-anchor="middle" font-size="28" font-weight="900" fill="#1a1a1a" font-family="Arial,sans-serif">C</text><circle cx="50" cy="50" r="48" fill="none" stroke="#FFF8DC" stroke-width="1.5" opacity="0.6"/></svg>
+        <span style="font-size:13px;color:var(--gold);font-weight:600">1 CYB = $1</span>
+      </div></div>
+    <p class="section-sub" style="text-align:center">Выберите подходящий план</p>
+
+    <h3 style="font-size:18px;font-weight:700;margin-bottom:16px;background:var(--accent-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Code Audit</h3>
+    <div class="pricing-grid" style="margin-bottom:40px">
+      <div class="price-card">
+        <div class="price-name">Lite</div>
+        <div class="price-amount">5 CYB<span class="per">/запрос</span></div>
+        <div class="price-quota">Вход от одного запроса</div>
+        <ul class="price-features">
+          <li>Аудит до 500 строк</li>
+          <li>Отчёт в веб-интерфейсе</li>
+          <li>P0/P1/P2 приоритеты</li>
+        </ul>
+        <button type="button" class="price-btn">Купить токены</button>
+      </div>
+
+      <div class="price-card featured">
+        <div class="price-badge">Популярный</div>
+        <div class="price-name">Standard</div>
+        <div class="price-amount">40 CYB<span class="per">/запрос</span></div>
+        <div class="price-quota">Пакет 10 запросов — 400 CYB</div>
+        <ul class="price-features">
+          <li>Аудит до 500 строк</li>
+          <li>Экспорт в PDF</li>
+          <li>Кросс-валидация</li>
+          <li>Email-отправка</li>
+        </ul>
+        <button type="button" class="price-btn">Купить пакет</button>
+      </div>
+
+      <div class="price-card">
+        <div class="price-name">Enterprise</div>
+        <div class="price-amount">300 CYB<span class="per">/запрос</span></div>
+        <div class="price-quota">Неограниченный объём</div>
+        <ul class="price-features">
+          <li>Неограниченный размер кода</li>
+          <li>API доступ · CI/CD</li>
+          <li>On-premise развертывание</li>
+          <li>Персональная поддержка</li>
+        </ul>
+        <button type="button" class="price-btn">Связаться</button>
+      </div>
+    </div>
+
+    <h3 style="font-size:18px;font-weight:700;margin-bottom:16px;background:var(--accent-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">Python → C++ Конвертер</h3>
+    <div class="pricing-grid">
+      <div class="price-card">
+        <div class="price-name">Lite</div>
+        <div class="price-amount">50 CYB<span class="per">/конвертация</span></div>
+        <div class="price-quota">До 300 строк Python</div>
+        <ul class="price-features">
+          <li>Production-ready C++20</li>
+          <li>Zero-allocation оптимизация</li>
+          <li>PDF-отчёт</li>
+        </ul>
+        <button type="button" class="price-btn">Купить токены</button>
+      </div>
+
+      <div class="price-card featured">
+        <div class="price-badge">Популярный</div>
+        <div class="price-name">Standard</div>
+        <div class="price-amount">40 CYB<span class="per">/конвертация</span></div>
+        <div class="price-quota">Пакет 10 — 400 CYB · Пакет 20 — 600 CYB</div>
+        <ul class="price-features">
+          <li>До 500 строк Python</li>
+          <li>3-этапная оптимизация</li>
+          <li>Email + PDF отчёт</li>
+        </ul>
+        <button type="button" class="price-btn">Купить пакет</button>
+      </div>
+
+      <div class="price-card">
+        <div class="price-name">Enterprise</div>
+        <div class="price-amount">350 CYB<span class="per">/конвертация</span></div>
+        <div class="price-quota">До 1000 строк Python</div>
+        <ul class="price-features">
+          <li>До 1000 строк Python</li>
+          <li>HFT-оптимизация</li>
+          <li>Приоритетная очередь</li>
+          <li>Персональная поддержка</li>
+        </ul>
+        <button type="button" class="price-btn">Связаться</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="container">
+    <h2 class="section-title" style="text-align:center">Вопросы и ответы</h2>
+    <p class="section-sub" style="text-align:center">Что нужно знать перед запуском</p>
+
+    <div class="faq-list">
+      <details>
+        <summary>А если ошибок нет?</summary>
+        <div class="answer">Значит, ваш код чист. Вы получите отчёт с подтверждением — это тоже результат. Отчёт можно приложить к резюме, показать инвестору, положить в документацию проекта.</div>
+      </details>
+      <details>
+        <summary>Сколько времени занимает аудит?</summary>
+        <div class="answer">Честная оценка зависит от объёма кода: один блок (до 16 000 символов) — примерно 6 минут, каждый следующий блок добавляет около 4 минут. Точная оценка показывается под окном кода до запуска аудита.</div>
+      </details>
+      <details>
+        <summary>Какие языки поддерживаете?</summary>
+        <div class="answer">Python, C++, JavaScript/TypeScript, Go, Java, Rust, PHP, Ruby. Конвертер Python → C++ доступен отдельно.</div>
+      </details>
+      <details>
+        <summary>Это безопасно?</summary>
+        <div class="answer">Код передаётся на анализ через защищённый API. Данные не используются для обучения моделей. Срок хранения на стороне провайдера — до 30 дней. Секреты, API-ключи и пароли вырезаются до отправки. Для клиентов с повышенными требованиями безопасности доступен режим Zero Data Retention.</div>
+      </details>
+
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <span class="v">Cybersall AI Agent v1.0 · CYB Token</span> · © 2026 · Все права защищены
+  </div>
+</footer>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TEST_CODE = `def get_user(user_id):
+    query = "SELECT * FROM users WHERE id = " + str(user_id)
+    result = db.execute(query)
+    return result
+
+def authenticate(username, password):
+    if username == "admin" and password == "admin123":
+        return True
+    return False
+
+import os
 def read_file(path):
-    f = open(path)
-    data = f.read()
-    return data</textarea>
-                    <div class="size-warn" id="sizeWarn">Превышен лимит 200 КБ. Код не будет отправлен.</div>
-                </div>
+    return open(path).read()
 
-                <div class="hint hint-ensemble">
-                    <strong>Кросс-валидация:</strong> Claude → GPT → Kimi → DeepSeek.
-                    Каждая модель видит ответ предыдущей. Дольше (~2 мин), но точнее.
-                </div>
+def process(data):
+    for i in range(len(data)):
+        print(data[i])
+`;
 
-                <button class="btn" onclick="doAudit()" id="auditBtn">Аудитировать</button>
+const STEP_LABELS = [
+  "Сканирование кода...",
+  "Анализ уязвимостей...",
+  "Кросс-валидация...",
+  "Формирование отчёта..."
+];
 
-                <div id="result"></div>
-            </div>
-        </div>
-    </section>
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._tm);
+  t._tm = setTimeout(()=>t.classList.remove('show'), 2400);
+}
 
-    <section class="footer">
-        <div class="container">
-            <p>CodeAudit AI v0.4 — Аудит кода через AI</p>
-        </div>
-    </section>
+function pasteTestCode(){
+  document.getElementById('code').value = TEST_CODE;
+  showToast('Тестовый код вставлен');
+}
 
-    <script>
-    const MAX_CODE = 200000;
-    const codeEl = document.getElementById('code');
-    const sizeInfo = document.getElementById('sizeInfo');
-    const sizeWarn = document.getElementById('sizeWarn');
+function clearCode(){
+  document.getElementById('code').value = '';
+  showToast('Поле очищено');
+}
 
-    function updateSize() {
-        const len = codeEl.value.length;
-        sizeInfo.textContent = '(' + len.toLocaleString() + ' символов)';
-        sizeWarn.style.display = len > MAX_CODE ? 'block' : 'none';
+function copyReport(){
+  const txt = document.getElementById('reportBox').innerText;
+  if(!txt.trim()){ showToast('Отчёт пуст'); return; }
+  navigator.clipboard.writeText(txt).then(
+    ()=>showToast('Отчёт скопирован'),
+    ()=>showToast('Не удалось скопировать')
+  );
+}
+
+function resetUI(){
+  const pl = document.getElementById('pipeline');
+  pl.classList.remove('active');
+  pl.querySelectorAll('.pstep').forEach(s=>{
+    s.classList.remove('show','done','loading');
+  });
+  document.getElementById('result').classList.remove('active');
+}
+
+function estimateAuditTimeMs(codeLen){
+  const blocks = Math.max(1, Math.ceil(codeLen / 16000));
+  const totalSec = 32 + blocks * 237 + 83;
+  return Math.max(120, totalSec) * 1000;
+}
+
+function formatElapsed(ms){
+  const sec = Math.round(ms/1000);
+  if(sec<60) return sec+' с';
+  return Math.floor(sec/60)+' мин '+sec%60+' с';
+}
+
+let _pipelineTimers=[];
+function startPipeline(estMs){
+  const pl = document.getElementById('pipeline');
+  const steps = pl.querySelectorAll('.pstep');
+  pl.classList.add('active');
+  steps.forEach(s=>s.classList.remove('show','done','loading'));
+  _pipelineTimers.forEach(t=>clearTimeout(t));
+  _pipelineTimers=[];
+  const frac=[0.08,0.35,0.7,0.92];
+  frac.forEach((f,idx)=>{
+    const t=setTimeout(()=>{
+      steps.forEach(s=>s.classList.remove('loading'));
+      if(idx>0){steps[idx-1].classList.add('done');steps[idx-1].classList.remove('loading');}
+      steps[idx].classList.add('show');
+      if(idx<steps.length-1) steps[idx].classList.add('loading');
+    }, Math.floor(f*estMs));
+    _pipelineTimers.push(t);
+  });
+}
+
+function finishPipeline(){
+  _pipelineTimers.forEach(t=>clearTimeout(t));
+  const steps = document.getElementById('pipeline').querySelectorAll('.pstep');
+  steps.forEach(s=>{s.classList.add('show','done');s.classList.remove('loading');});
+}
+
+function runPipeline(totalMs){ startPipeline(totalMs||estimateAuditTimeMs(8000)); }
+
+function renderReport(data){
+  const box = document.getElementById('reportBox');
+  const report = data.report || data.result || '';
+  box.textContent = report;
+
+  const sev = data.severity || {};
+  document.getElementById('cnt-crit').textContent = sev.critical ?? data.critical ?? 0;
+  document.getElementById('cnt-warn').textContent = sev.warning ?? data.warning ?? 0;
+  document.getElementById('cnt-info').textContent = sev.info ?? data.info ?? 0;
+
+  const ms = data.elapsed_ms || (data.elapsed_sec ? data.elapsed_sec*1000 : 0);
+  document.getElementById('meta-time').textContent = ms ? formatElapsed(ms) : (data.elapsed || '—');
+  document.getElementById('meta-blocks').textContent = data.blocks ?? data.code_blocks ?? '—';
+
+  document.getElementById('result').classList.add('active');
+  document.getElementById('result').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function fallbackReport(code, question){
+  const lines = code.split('\n').filter(l=>l.trim()).length;
+  const lower = code.toLowerCase();
+  let crit = 0, warn = 0, info = 0;
+  const findings = [];
+
+  if(/select .* where.*\+|f"select|format\(.*select|sql/i.test(lower) || /\+ str\(.+\)/.test(code)){
+    crit++;
+    findings.push('[CRITICAL] SQL-инъекция: конкатенация пользовательского ввода в SQL-запрос. Используйте параметризованные запросы.');
+  }
+  if(/password\s*==|==\s*['"]\w+['"]/.test(lower) || /admin123|root|12345/i.test(lower)){
+    crit++;
+    findings.push('[CRITICAL] Хардкод учётных данных / сравнение пароля через ==. Вынесите секреты в env и используйте хеширование (bcrypt/argon2).');
+  }
+  if(/open\([^)]+\)\.read|os\.system|eval\(|exec\(|subprocess\.call.*shell\s*=\s*true/i.test(lower)){
+    crit++;
+    findings.push('[CRITICAL] Опасный паттерн ввода/выполнения: чтение файла без закрытия контекста или исполнение произвольного кода. Добавьте валидацию пути и используйте with/безопасные API.');
+  }
+  if(/range\(len\(/i.test(code)){
+    warn++;
+    findings.push('[WARNING] Идиоматический антипаттерн: range(len(data)). Используйте enumerate(data) или прямой итератор.');
+  }
+  if(/password|secret|api[_-]?key/i.test(lower) && !/os\.environ|os\.getenv|env\[/.test(lower)){
+    warn++;
+    findings.push('[WARNING] Возможна утечка секретов в коде. Храните в переменных окружения или в секрет-менеджере.');
+  }
+  if(lines > 5 && /print\(/i.test(code)){
+    info++;
+    findings.push('[INFO] Отладочные print() в продуктовом коде. Замените на logging.');
+  }
+  if(!findings.length){
+    info++;
+    findings.push('[INFO] Явных критических проблем не обнаружено. Рекомендуется добавить статический анализ в CI.');
+  }
+
+  const report = `═══════════════════════════════════════════════
+  ОТЧЁТ АГЕНТА БЕЗОПАСНОСТИ · Cybersall AI v1.0
+═══════════════════════════════════════════════
+
+Запрос пользователя:
+  ${question}
+
+Проанализировано строк кода: ${lines}
+
+───────────────────────────────────────────────
+НАЙДЕННЫЕ ПРОБЛЕМЫ (${findings.length})
+───────────────────────────────────────────────
+
+${findings.map((f,i)=>`  ${i+1}. ${f}`).join('\n\n')}
+
+───────────────────────────────────────────────
+СВОДКА
+───────────────────────────────────────────────
+  Критичные:        ${crit}
+  Важные:           ${warn}
+  Информационные:   ${info}
+
+───────────────────────────────────────────────
+РЕКОМЕНДАЦИИ
+───────────────────────────────────────────────
+  • Внедрите SAST (bandit/semgrep) в CI
+  • Используйте секрет-менеджер (Vault/SOPS)
+  • Покройте критичные модули unit-тестами
+  • Проведите регулярный dependency-аудит
+
+═══════════════════════════════════════════════
+`;
+  return {
+    report,
+    severity: {critical: crit, warning: warn, info},
+    elapsed_ms: 1000 + Math.floor(Math.random()*1500),
+    blocks: Math.max(1, Math.floor(lines/20))
+  };
+}
+
+async function doAudit(){
+  const code = document.getElementById('code').value.trim();
+  const question = document.getElementById('question').value.trim() || 'Найди уязвимости и баги';
+  const apikey = document.getElementById('apikey').value;
+
+  if(!code){
+    showToast('Вставьте код для анализа');
+    document.getElementById('code').focus();
+    return;
+  }
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span>⏳</span><span>Анализ...</span>';
+
+  resetUI();
+
+  const t0 = performance.now();
+  const estMs = estimateAuditTimeMs(code.length);
+  const estMin = Math.max(2, Math.round(estMs/60000));
+  const blocksEst = Math.max(1, Math.ceil(code.length/16000));
+  const hint = document.getElementById('timeHint');
+  if(hint){ hint.textContent = '⏱ Оценка времени: ~'+estMin+' мин · '+blocksEst+' блок(ов)'; }
+  const plTitle = document.querySelector('#pipeline .pipeline-title');
+  if(plTitle){ plTitle.textContent = 'Пайплайн анализа · ⏱ ~'+estMin+' мин (объективная оценка)'; }
+  startPipeline(estMs);
+
+  const ac = new AbortController();
+  const maxWaitMs = Math.min(50*60*1000, Math.max(120000, (estMin+2)*60000));
+  const timeoutPromise = new Promise(res=>setTimeout(()=>{ac.abort();res({__err:'timeout'});}, maxWaitMs));
+
+  const apiPromise = (async()=>{
+    try{
+      const fd = new FormData();
+      fd.append('code', code);
+      fd.append('question', question);
+      fd.append('apikey', apikey);
+      const endpoints = ['/api/audit/ensemble','/api/audit'];
+      for(const url of endpoints){
+        try{
+          const r = await fetch(url, {method:'POST', body: fd, signal: ac.signal, headers: {'X-API-Key': apikey}});
+          if(r.ok){
+            const ct = r.headers.get('content-type')||'';
+            return {__ok:true, data: ct.includes('json') ? await r.json() : await r.text()};
+          }
+          if(r.status===401||r.status===403){
+            ac.abort();
+            return {__err:'auth'};
+          }
+        }catch(e){}
+      }
+      return {__err:'server'};
+    }catch(e){ return {__err:'server'}; }
+  })();
+
+  const result = await Promise.race([apiPromise, timeoutPromise]);
+  finishPipeline();
+
+  if(result && result.__ok){
+    const data = result.data;
+    const elapsed = data.elapsed_ms ?? (performance.now()-t0);
+    renderReport({...data, elapsed_ms: elapsed});
+  }else{
+    const reason = result && result.__err==='timeout'
+      ? 'Аудит не уложился в отведённое время. Попробуйте ещё раз — большие файлы обрабатываются дольше.'
+      : (result && result.__err==='auth'
+        ? 'Доступ запрещён: проверьте API-ключ.'
+        : 'Сервис временно недоступен. Повторите попытку позже.');
+    document.getElementById('reportBox').textContent = 'Ошибка аудита: ' + reason;
+    document.getElementById('result').classList.add('active');
+    document.getElementById('result').scrollIntoView({behavior:'smooth', block:'start'});
+    showToast('Аудит не завершился');
+  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<span>🔍</span><span>Запустить аудит</span>';
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  const ta = document.getElementById('code');
+  if(!ta) return;
+  ta.addEventListener('input', ()=>{
+    const hint = document.getElementById('timeHint');
+    if(!hint) return;
+    const len = ta.value.trim().length;
+    if(!len){ hint.textContent = '⏱ Оценка времени: —'; return; }
+    const estMin = Math.max(2, Math.round(estimateAuditTimeMs(len)/60000));
+    const blocksEst = Math.max(1, Math.ceil(len/16000));
+    hint.textContent = '⏱ Оценка времени: ~'+estMin+' мин · '+blocksEst+' блок(ов)';
+  });
+});
+
+async function doConvert(){
+  const code=document.getElementById('convert_code').value;
+  const question=document.getElementById('convert_question').value.trim();
+  const btn=document.getElementById('convertBtn');
+  const spinner=document.getElementById('convert_spinner');
+  const resultWrap=document.getElementById('convert_result_wrap');
+  const result=document.getElementById('convert_result');
+  const meta=document.getElementById('convert_meta');
+  const copyBtn=document.getElementById('convertCopyBtn');
+  if(!code.trim()){resultWrap.style.display='block';result.textContent='Вставьте Python код';return}
+  btn.disabled=true;btn.querySelector('span').textContent='Конвертация...';
+  spinner.style.display='block';resultWrap.style.display='none';
+  copyBtn.textContent='Копировать C++';copyBtn.classList.remove('copied');
+  const fd=new FormData();fd.append('code',code);if(question)fd.append('question',question);
+  try{
+    const r=await fetch('/api/convert',{method:'POST',headers:{'X-API-Key':document.getElementById('apikey')?document.getElementById('apikey').value:'n_C0T_V14g6YwF6WHI5AnrCvJgUd4XA_TPhno_Q6ILU'},body:fd});
+    const data=await r.json();
+    spinner.style.display='none';
+    if(data.error||data.detail){resultWrap.style.display='block';meta.textContent='Ошибка';result.textContent=data.error||data.detail;}
+    else{
+      const stages=(data.stages||[]).map(s=>s.stage+': '+(s.ok?s.model:'ошибка')).join(' → ');
+      meta.textContent='Этапы: '+stages+' | Время: '+(data.elapsed||0)+'с | Баланс: '+(data.balance_remaining||'?');
+      result.textContent=data.cpp;resultWrap.style.display='block';
     }
-    codeEl.addEventListener('input', updateSize);
-    updateSize();
+  }catch(e){spinner.style.display='none';resultWrap.style.display='block';meta.textContent='Ошибка';result.textContent=e.message;}
+  finally{btn.disabled=false;btn.querySelector('span').textContent='⚡ Конвертировать в C++';}
+}
+function copyConvertResult(){navigator.clipboard.writeText(document.getElementById('convert_result').textContent).then(()=>{const b=document.getElementById('convertCopyBtn');b.textContent='Скопировано!';b.classList.add('copied');setTimeout(()=>{b.textContent='Копировать C++';b.classList.remove('copied')},2000);});}
 
-    async function doAudit() {
-        const code = codeEl.value;
-        const model = document.getElementById('model').value;
-        const mode = document.getElementById('mode').value;
-        const apikey = document.getElementById('apikey').value;
-        const result = document.getElementById('result');
-        const btn = document.getElementById('auditBtn');
+async function sendAuditEmail(){
+  const email=document.getElementById('auditEmail').value.trim();
+  if(!email||!email.includes('@')){showToast('Введите корректный email');return}
+  const btn=document.getElementById('sendAuditBtn');
+  btn.disabled=true;btn.textContent='Отправка...';
+  const fd=new FormData();
+  fd.append('code',document.getElementById('code').value);
+  fd.append('email',email);
+  fd.append('model',document.getElementById('mode')?document.getElementById('mode').value:'ensemble');
+  const q=document.getElementById('question');if(q)fd.append('question',q.value);
+  try{
+    const r=await fetch('/api/audit/email',{method:'POST',headers:{'X-API-Key':getApiKey()},body:fd});
+    const data=await r.json();
+    if(data.sent){showToast('Отчёт отправлен на '+email)}
+    else{showToast('Ошибка отправки')}
+  }catch(e){showToast('Ошибка: '+e.message)}
+  finally{btn.disabled=false;btn.innerHTML='<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z\"/><polyline points=\"22,6 12,13 2,6\"/></svg> Отправить PDF'}
+}
+function getApiKey(){const el=document.getElementById('apikey');return el?el.value:''}
+function showToast(msg){const t=document.getElementById('toast');if(!t)return;t.textContent=msg;t.style.display='block';setTimeout(()=>{t.style.display='none'},3000)}
 
-        if (!apikey) { result.style.display='block'; result.textContent='Введите API-ключ'; return; }
-        if (!code.trim()) { result.style.display='block'; result.textContent='Вставьте код для аудита'; return; }
-        if (code.length > MAX_CODE) { result.style.display='block'; result.textContent='Код слишком большой (макс 200 КБ). Разбейте на части.'; return; }
+function showRules(type){
+  const title=type==='audit'?'Правила Code Audit':'Правила Python → C++ Конвертер';
+  const content=type==='audit'?
+    '<b>Code Audit:</b><br>• Максимум 500 строк за запрос<br>• Объективное время: ≈6 минут на блок (до 16 000 символов), +≈4 минуты за каждый следующий блок<br>• Результат — аналитический отчёт<br>• Код не используется для обучения моделей<br>• Срок хранения на стороне провайдера — до 30 дней<br>• email-отправка доступна от 50 CYB':
+    '<b>Python → C++ Конвертер:</b><br>• Lite: до 300 строк — 50 CYB/запрос<br>• Standard: до 500 строк — 40 CYB/запрос (пакет 10+)<br>• Enterprise: до 1000 строк — 350 CYB/запрос<br>• Конвертация через 3 этапа (перевод → оптимизация → ревью)<br>• Время: 2–5 минут<br>• C++20, zero-allocation, RAII';
+  let modal=document.getElementById('rulesModal');
+  if(!modal){modal=document.createElement('div');modal.id='rulesModal';modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';modal.innerHTML='<div style="background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:28px;max-width:500px;width:90%;position:relative"><button onclick="closeRules()" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-dim);font-size:20px;cursor:pointer">✕</button><h3 style="margin:0 0 16px;font-size:18px;color:var(--text)"></h3><div style="color:var(--text-dim);font-size:14px;line-height:1.8"></div></div>';document.body.appendChild(modal)}
+  modal.querySelector('h3').textContent=title;
+  modal.querySelector('div:last-child').innerHTML=content;
+  modal.style.display='flex';
+}
+function closeRules(){const m=document.getElementById('rulesModal');if(m)m.style.display='none'}
+</script>
 
-        btn.disabled = true;
-        btn.textContent = mode === 'ensemble' ? 'Кросс-валидация (4 модели)...' : 'Аудит...';
-        result.style.display = 'block';
-        result.textContent = mode === 'ensemble'
-            ? 'Запуск кросс-валидации: Claude → GPT → Kimi → DeepSeek...'
-            : 'Отправка кода на анализ через ' + model + '...';
-
-        const url = mode === 'ensemble' ? '/api/audit/ensemble' : '/api/audit';
-        const fd = new FormData();
-        fd.append('code', code);
-        if (mode === 'single') fd.append('model', model);
-
-        try {
-            const r = await fetch(url, {
-                method: 'POST',
-                headers: { 'X-API-Key': apikey },
-                body: fd
-            });
-            const data = await r.json();
-
-            if (data.error || data.detail) {
-                result.textContent = 'Ошибка: ' + (data.error || data.detail);
-            } else {
-                let metaText = '';
-                if (mode === 'ensemble') {
-                    metaText = 'Блоков: ' + (data.blocks||'?') +
-                        ' | Время: ' + (data.elapsed_sec||'?') + ' сек' +
-                        ' | Качество: ' + (data.quality_ok ? 'OK' : 'Нужна доработка') +
-                        ' | Баланс: ' + (data.balance_remaining||'?');
-                } else {
-                    metaText = 'Модель: ' + data.model +
-                        ' | Баланс: ' + (data.balance_remaining||'?') + ' запросов' +
-                        ' | Токены: ' + (data.prompt_tokens||0) + ' in / ' + (data.completion_tokens||0) + ' out';
-                }
-                const meta = document.createElement('div');
-                meta.className = 'meta';
-                meta.textContent = metaText;
-                const pre = document.createElement('pre');
-                pre.style.whiteSpace = 'pre-wrap';
-                pre.style.fontFamily = "'Courier New', monospace";
-                pre.style.fontSize = '13px';
-                pre.textContent = data.report;
-                result.replaceChildren(meta, pre);
-            }
-        } catch(e) {
-            result.textContent = 'Ошибка соединения: ' + e.message;
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Аудитировать';
-        }
-    }
-    </script>
 </body>
 </html>
