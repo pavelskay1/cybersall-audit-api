@@ -27,12 +27,14 @@
     /opt/audit-api/venv/bin/python3 treasury_cli.py execute <quote_id>
     /opt/audit-api/venv/bin/python3 treasury_cli.py send 0xADDR 1.5 CYB
 
-## Контракт CYB (v2, готов к деплою)
+## Контракт CYB (v2, ЗАДЕПЛОЕН)
 
-- Локально: `cybersall-token/` (hardhat), 18/18 тестов
-- Изменения v2: transfer fee 1.5% → казначейство; OTP привязан к получателю+сумме; cap MAX_TOTAL_SUPPLY (10M); mintToTreasury («минт как пополнение»); useForService вместо burn; receive() revert; anti-whale удалён; rescueTokens/rescueAvax; свой nonReentrant (OZ 5.6 guard несовместим с прокси)
-- Деплой: `TREASURY=<адрес> npx hardhat run scripts/deploy.js --network avalanche`
-- Газ на деплой: ~0.59 AVAX на кошельке достаточно (~1-2$)
+- Proxy (mainnet 43114): `0x9cC9BB843A6B112dec511d53805bf9883DF387e1`
+- Implementation: `0xCDfE625b836ba80dB5172f794b27778265550ac2`
+- Treasury/owner: BYOK `0x4080C22B98E3EDE6Fcd31a3381e79D04d6CAAE84`, initial supply 1M CYB на казначействе
+- Адрес записан в `secret/treasury.json` (cyb_proxy), локально `cybersall-token/` 18/18 тестов; репо GitHub `pavelskay1/cybersall-token`
+- v2: transfer fee 1.5% → казначейство; OTP→получатель+сумма; cap 10M; mintToTreasury; useForService вместо burn; receive() revert; anti-whale удалён; rescueTokens/rescueAvax; nonReentrant
+- Аудит v3 (наша система, 5 блоков): P0-1 useForService — централизованный owner (осознанный дизайн MVP), P0-2 — ложноположительная (fee не взимается: `to==treasury` exempt)
 
 ## Безопасность
 
