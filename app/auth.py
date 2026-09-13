@@ -11,6 +11,9 @@ from fastapi import Header, HTTPException
 
 SECRET_DIR = Path(__file__).parent.parent / "secret"
 KEYS_FILE = SECRET_DIR / "api_keys.json"
+ADMIN_KEY_FILE = SECRET_DIR / "admin_key.txt"
+LIMITS_FILE = SECRET_DIR / "create_limits.json"
+FREE_CREATE_PER_IP_PER_DAY = 5  # бесплатных ключей с одного IP в сутки
 
 PLANS = {
     "free": {"per_day": 3, "price": 0},
@@ -32,8 +35,41 @@ def _save(data):
     os.chmod(KEYS_FILE, 0o600)
 
 
+def _load_limits():
+    if LIMITS_FILE.exists():
+        return json.loads(LIMITS_FILE.read_text())
+    return {}
+
+
+def _save_limits(data):
+    LIMITS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    LIMITS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    import os
+    os.chmod(LIMITS_FILE, 0o600)
+
+
 def _hash(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
+
+
+def check_create_allowed(plan: str, client_ip: str, admin_key: str | None = None) -> None:
+    """Защита /api/auth/create: платные планы только с админ-ключом, free — лимит на IP."""
+    if plan != "free":
+        if not admin_key:
+            raise HTTPException(403, "Платные планы доступны только через админ-ключ")
+        if not ADMIN_KEY_FILE.exists():
+            raise HTTPException(500, "Админ-ключ не настроен на сервере")
+        stored = ADMIN_KEY_FILE.read_text().strip()
+        if not stored or admin_key != stored:
+            raise HTTPException(403, "Неверный админ-ключ")
+        return
+    limits = _load_limits()
+    today = datetime.date.today().isoformat()
+    day = limits.setdefault(client_ip, {}).setdefault(today, 0)
+    if day >= FREE_CREATE_PER_IP_PER_DAY:
+        raise HTTPException(429, "Слишком много бесплатных ключей с этого IP (макс 5/сутки). Попробуйте завтра.")
+    limits[client_ip][today] = day + 1
+    _save_limits(limits)
 
 
 def generate_key(plan: str = "free") -> str:

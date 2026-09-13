@@ -13,7 +13,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Hea
 from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from .clodex_client import audit_code, MODELS
 from .sanitizer import sanitize
-from .auth import verify_key, generate_key
+from .auth import verify_key, generate_key, check_create_allowed
 from .sandbox import static_analyze, ban_client
 from .converter import convert_python_to_cpp
 from .email_sender import send_report
@@ -317,7 +317,13 @@ async def api_convert_email(
     }
 
 @app.post("/api/auth/create")
-async def create_key(plan: str = "free"):
+async def create_key(plan: str = "free", x_admin_key: str | None = Header(None), request: Request = None):
+    """Создание ключа: free — с лимитом на IP; pro/enterprise — только с X-Admin-Key."""
+    if request and request.client:
+        client_ip = request.headers.get("x-real-ip") or request.client.host
+    else:
+        client_ip = "?"
+    check_create_allowed(plan, client_ip, x_admin_key)
     key = generate_key(plan)
     return {"api_key": key, "plan": plan}
 

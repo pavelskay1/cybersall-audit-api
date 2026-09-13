@@ -42,6 +42,7 @@
 
 - Токены/ключи в чат НЕ выводить, только пути (chmod 600)
 - `.gitignore` исключает `secret/`, `logs/`, `reports/`, `*.bak*`
+- Дыра /api/auth/create ЗАКРЫТА: free — лимит 5 ключей/сутки/IP; pro/enterprise — только с X-Admin-Key из `secret/admin_key.txt` (chmod 600)
 - Первый сервер (195.19.12.98, /opt/tinvest-system, /opt/crypto-system) — НЕ трогать, только смотреть
 
 ## TODO
@@ -52,4 +53,4 @@
 - [ ] Пересобрать смоук-тест на большом файле (>16000 символов) — проверить лимиты блоков
 - [ ] Push на GitHub (ветка `cybersall-audit-api`)
 - [ ] HTTPS-домен для продакшена
-- [ ] Закрыть/ограничить `/api/auth/create` (только free + лимит IP; pro/enterprise через админ-секрет)
+- [x] Закрыть/ограничить `/api/auth/create` (free + лимит 5/сутки/IP; pro/enterprise только через X-Admin-Key)
