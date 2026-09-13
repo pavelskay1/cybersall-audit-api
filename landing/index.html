@@ -1025,7 +1025,7 @@ footer .v{color:var(--text-dim)}
       </details>
       <details>
         <summary>Сколько времени занимает аудит?</summary>
-        <div class="answer">Честная оценка зависит от объёма кода: один блок (до 16 000 символов) — примерно 6 минут, каждый следующий блок добавляет около 4 минут. Точная оценка показывается под окном кода до запуска аудита.</div>
+        <div class="answer">Честная оценка зависит от объёма кода: первый блок (до 16 000 символов) — примерно 4–5 минут, каждый следующий блок добавляет около 3 минут. Максимум 16 блоков за один запрос. Точная оценка показывается под окном кода до запуска аудита.</div>
       </details>
       <details>
         <summary>Какие языки поддерживаете?</summary>
@@ -1113,7 +1113,7 @@ function resetUI(){
 
 function estimateAuditTimeMs(codeLen){
   const blocks = Math.max(1, Math.ceil(codeLen / 16000));
-  const totalSec = 32 + blocks * 237 + 83;
+  const totalSec = 110 + blocks * 150;
   return Math.max(120, totalSec) * 1000;
 }
 
@@ -1389,7 +1389,7 @@ function showToast(msg){const t=document.getElementById('toast');if(!t)return;t.
 function showRules(type){
   const title=type==='audit'?'Правила Code Audit':'Правила Python → C++ Конвертер';
   const content=type==='audit'?
-    '<b>Code Audit:</b><br>• Максимум 500 строк за запрос<br>• Объективное время: ≈6 минут на блок (до 16 000 символов), +≈4 минуты за каждый следующий блок<br>• Результат — аналитический отчёт<br>• Код не используется для обучения моделей<br>• Срок хранения на стороне провайдера — до 30 дней<br>• email-отправка доступна от 50 CYB':
+    '<b>Code Audit:</b><br>• Максимум 500 строк за запрос<br>• Объективное время: ≈4–5 минут на первый блок (до 16 000 символов), +≈3 минуты за каждый следующий; максимум 16 блоков за запрос<br>• Результат — аналитический отчёт<br>• Код не используется для обучения моделей<br>• Срок хранения на стороне провайдера — до 30 дней<br>• email-отправка доступна от 50 CYB':
     '<b>Python → C++ Конвертер:</b><br>• Lite: до 300 строк — 50 CYB/запрос<br>• Standard: до 500 строк — 40 CYB/запрос (пакет 10+)<br>• Enterprise: до 1000 строк — 350 CYB/запрос<br>• Конвертация через 3 этапа (перевод → оптимизация → ревью)<br>• Время: 2–5 минут<br>• C++20, zero-allocation, RAII';
   let modal=document.getElementById('rulesModal');
   if(!modal){modal=document.createElement('div');modal.id='rulesModal';modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';modal.innerHTML='<div style="background:var(--bg-2);border:1px solid var(--line);border-radius:14px;padding:28px;max-width:500px;width:90%;position:relative"><button onclick="closeRules()" style="position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text-dim);font-size:20px;cursor:pointer">✕</button><h3 style="margin:0 0 16px;font-size:18px;color:var(--text)"></h3><div style="color:var(--text-dim);font-size:14px;line-height:1.8"></div></div>';document.body.appendChild(modal)}

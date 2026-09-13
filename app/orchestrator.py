@@ -22,6 +22,8 @@ QUALITY_CHECKER = "claude-opus-5"
 
 MAX_BLOCK_CHARS = 16000
 MAX_TOKENS = 16000
+MAX_BLOCKS = 16      # больше блоков = взрыв времени и токенов
+MIN_BLOCK_CHARS = 8000  # ниже этого размера блок считается 'слишком мелким'
 
 # Метрики по замерам (2026-09-12, Avalanche-контракт, 3 блока)
 AVG_STAGE_SEC = {"claude-opus-5": 41, "gpt-6-astra": 140, "kimi-k3": 56}
@@ -48,11 +50,54 @@ def _file_index(code: str) -> str:
     return out
 
 
+def _merge_small_blocks(blocks: list) -> list:
+    """Склеивает слишком мелкие блоки в соседние, пока не наберётся разумный размер."""
+    merged = []
+    carry = None
+    for b in blocks:
+        code = b.get("code", "")
+        if not code:
+            continue
+        if carry is None:
+            carry = dict(b)
+            continue
+        small = len(code) < MIN_BLOCK_CHARS or len(carry["code"]) < MIN_BLOCK_CHARS
+        if small and len(carry["code"]) + len(code) <= MAX_BLOCK_CHARS:
+            carry["code"] += "\n\n" + code
+            carry["name"] = (carry.get("name") or "block") + "+" + (b.get("name") or "block")
+            carry["focus"] = "полный аудит объединённого блока"
+            carry["context"] = ((carry.get("context") or "") + "\n" + (b.get("context") or "")).strip()
+            continue
+        merged.append(carry)
+        carry = dict(b)
+    if carry is not None:
+        merged.append(carry)
+    return merged or blocks
+
+
+def _fallback_blocks(code: str, file_index: str) -> list:
+    """Простая нарезка по символам, если LLM-сплиттер не справился или раздробил слишком мелко."""
+    blocks, start, i = [], 0, 0
+    n = len(code)
+    while start < n:
+        end = min(start + MAX_BLOCK_CHARS, n)
+        blocks.append({"name": f"block_{i+1}", "code": code[start:end],
+                      "context": file_index, "focus": "полный аудит сегмента"})
+        start = end
+        i += 1
+    return blocks
+
+
 def split_into_blocks(code: str, model: str = ORCHESTRATOR) -> list:
     file_index = _file_index(code)
+    # Маленький файл аудируем целиком: LLM-сплиттер не нужен, это быстрее и точнее
+    if len(code) <= MAX_BLOCK_CHARS:
+        return [{"name": "whole_code", "code": code,
+                 "context": file_index, "focus": "полный аудит файла"}]
     prompt = (
         "Разбей следующий код на логические блоки для параллельного аудита.\n"
-        "Каждый блок: " + str(MAX_BLOCK_CHARS) + " символов максимум.\n"
+        "Целевой размер блока: ~" + str(MAX_BLOCK_CHARS) + " символов. Минимум: " + str(MIN_BLOCK_CHARS) + " символов (кроме последнего). Максимум: " + str(MAX_BLOCKS) + " блоков.\n"
+        "Не дроби код слишком мелко — по функции или небольшому модулю, а не по строкам.\n"
         "Для каждого блока добавь контекст: что это, откуда вызывается, фокус аудита.\n"
         "Верни ТОЛЬКО JSON:\n"
         '[{"name": "...", "code": "...", "context": "...", "focus": "..."}]\n\n'
@@ -70,6 +115,11 @@ def split_into_blocks(code: str, model: str = ORCHESTRATOR) -> list:
             blocks = json.loads(text)
             if not isinstance(blocks, list) or len(blocks) == 0:
                 raise ValueError("Empty blocks")
+            # Склеить мелкие блоки и ограничить число блоков (страховка от дробилки)
+            blocks = _merge_small_blocks(blocks)
+            if len(blocks) > MAX_BLOCKS:
+                print(f"[orchestrator] Сплиттер дал {len(blocks)} блоков — режу по символам")
+                blocks = _fallback_blocks(code, file_index)
             # Вписать индекс файла в контекст каждого блока
             for b in blocks:
                 ctx = b.get("context", "")
@@ -90,6 +140,19 @@ def run_stage(block: dict, stage: dict, previous_results: list) -> dict:
     focus = block.get("focus", "найди реальные баги P0/P1/P2")
     name = block.get("name", "block")
 
+    if name == "whole_code":
+        scope_intro = (
+            "Ты — security-инженер. Аудитируешь файл целиком (он небольшой, "
+            "передан полностью).\n\n"
+        )
+    else:
+        scope_intro = (
+            "Ты — security-инженер. Аудитируешь БЛОК из большого файла проекта.\n\n"
+            "ВАЖНО: ты видишь не весь файл, а фрагмент. Не утверждай, что функции "
+            "'отсутствуют', если их нет в этом блоке — сначала сверься со списком "
+            "функций полного файла в контексте.\n\n"
+        )
+
     history = ""
     if previous_results:
         history = "\n\n### Находки предыдущих моделей по этому блоку:\n"
@@ -97,10 +160,7 @@ def run_stage(block: dict, stage: dict, previous_results: list) -> dict:
             history += "\n--- " + prev.get("model", "?") + " ---\n" + prev.get("text", "")[:1500] + "\n"
 
     prompt = (
-        "Ты — security-инженер. Аудитируешь БЛОК из большого файла проекта.\n\n"
-        "ВАЖНО: ты видишь не весь файл, а фрагмент. Не утверждай, что функции "
-        "'отсутствуют', если их нет в этом блоке — сначала сверься со списком "
-        "функций полного файла в контексте.\n\n"
+        scope_intro +
         "Блок: " + name + "\n"
         "Контекст: \n" + context + "\n\n"
         "Фокус: " + focus + "\n\n"
@@ -142,10 +202,12 @@ def run_stage(block: dict, stage: dict, previous_results: list) -> dict:
 
 def quality_check(results: list, model: str = ORCHESTRATOR):
     parts = []
+    block_names = set()
     for r in results:
         if r.get("text"):
             m = r.get("model", "?")
             b = r.get("block", "?")
+            block_names.add(b)
             t = r.get("text", "")[:2000]
             parts.append("--- " + m + " (блок " + b + ") ---\n" + t)
     combined = "\n\n".join(parts)
@@ -153,8 +215,13 @@ def quality_check(results: list, model: str = ORCHESTRATOR):
         print("[orchestrator] quality_check: нет текстовых результатов для проверки")
         return False, "Нет результатов для проверки", ""
 
+    if len(block_names) <= 1:
+        scope_desc = "файл небольшой, каждая модель видела его целиком."
+    else:
+        scope_desc = "файл разбит на блоки, каждая модель видела ТОЛЬКО свой блок кода."
+
     prompt = (
-        "Ты — дирижёр аудита. Каждая модель видела ТОЛЬКО свой блок кода, а не весь файл.\n\n"
+        "Ты — дирижёр аудита. " + scope_desc + "\n\n"
         + combined + "\n\n"
         "Учитывая это, оцени:\n"
         "1. Полноту — покрыты ли все блоки?\n"
@@ -191,23 +258,33 @@ def quality_check(results: list, model: str = ORCHESTRATOR):
 def final_verdict(results: list, code_len: int, model: str = ORCHESTRATOR) -> str:
     """Финальный анализ дирижёра: дедупликация, учёт разбивки, единый вердикт."""
     parts = []
+    seen_blocks = set()
     for r in results:
         if r.get("text") or r.get("error"):
             m = r.get("model", "?")
             b = r.get("block", "?")
+            seen_blocks.add(b)
             t = r.get("text", r.get("error", ""))[:6000]
             parts.append("--- " + m + " (блок " + b + ") ---\n" + t)
     combined = "\n\n".join(parts[:30])
     if not combined.strip():
         return ""
-    blocks = max(1, math.ceil(code_len / MAX_BLOCK_CHARS))
+    blocks = max(1, len(seen_blocks))
+    if blocks == 1:
+        split_desc = "файл небольшой и был передан моделям целиком (1 блок)."
+        split_problem = ""
+    else:
+        split_desc = (
+            "файл был разбит на " + str(blocks) + " логических блоков, каждый блок "
+            "аудировали 3 модели (Claude Opus 5, GPT-6-Astra, Kimi K3) по отдельности."
+        )
+        split_problem = (
+            "\n\nПРОБЛЕМА РАЗБИВКИ: модели видели только свои блоки. Часть утверждений "
+            "может быть ложной ('функция отсутствует', хотя она в другом блоке), "
+            "часть находок дублируется между моделями."
+        )
     prompt = (
-        "Ты — главный дирижёр аудита кода. Файл был разбит на " + str(blocks) +
-        " логических блоков, каждый блок аудировали 3 модели (Claude Opus 5, "
-        "GPT-6-Astra, Kimi K3) по отдельности.\n\n"
-        "ПРОБЛЕМА РАЗБИВКИ: модели видели только свои блоки. Часть утверждений "
-        "может быть ложной ('функция отсутствует', хотя она в другом блоке), "
-        "часть находок дублируется между моделями.\n\n"
+        "Ты — главный дирижёр аудита кода. " + split_desc + split_problem + "\n\n"
         "Твоя задача — дать КЛИЕНТУ точный итоговый отчёт:\n"
         "1. Удали дубликаты (одна проблема, найденная 2-3 моделями = 1 пункт).\n"
         "2. Отсекай ложные срабатывания, противоречащие коду (сверяй со списком функций).\n"
