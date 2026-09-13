@@ -14,10 +14,10 @@ from .sanitizer import sanitize
 
 CHAIN = [
     {"role": "primary", "model": "claude-opus-5"},
-    {"role": "deep", "model": "gpt-6-astra", "fallback": "deepseek-v4-flash"},
+    {"role": "deep", "model": "gpt-6-astra", "fallback": "deepseek-v4.1-flash"},
     {"role": "final", "model": "kimi-k3"},
 ]
-ORCHESTRATOR = "deepseek-v4-flash"
+ORCHESTRATOR = "deepseek-v4.1-flash"
 QUALITY_CHECKER = "claude-opus-5"
 
 MAX_BLOCK_CHARS = 16000
@@ -195,9 +195,9 @@ def final_verdict(results: list, code_len: int, model: str = ORCHESTRATOR) -> st
         if r.get("text") or r.get("error"):
             m = r.get("model", "?")
             b = r.get("block", "?")
-            t = r.get("text", r.get("error", ""))[:2500]
+            t = r.get("text", r.get("error", ""))[:6000]
             parts.append("--- " + m + " (блок " + b + ") ---\n" + t)
-    combined = "\n\n".join(parts[:14])
+    combined = "\n\n".join(parts[:30])
     if not combined.strip():
         return ""
     blocks = max(1, math.ceil(code_len / MAX_BLOCK_CHARS))
@@ -246,7 +246,7 @@ def audit_full(code: str, question: str = None) -> dict:
     all_results = []
     chain = [
         {"role": "primary", "model": "claude-opus-5"},
-        {"role": "deep", "model": "gpt-6-astra", "fallback": "deepseek-v4-flash"},
+        {"role": "deep", "model": "gpt-6-astra", "fallback": "deepseek-v4.1-flash"},
         {"role": "final", "model": "kimi-k3"},
     ]
 

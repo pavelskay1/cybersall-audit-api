@@ -21,6 +21,7 @@ MODELS = {
     "gpt-5.5": {"provider": "openai", "name": "gpt-5.5", "label": "GPT-5.5"},
     "deepseek-v4-pro": {"provider": "openai", "name": "deepseek-v4-pro", "label": "DeepSeek V4 Pro"},
     "deepseek-v4-flash": {"provider": "openai", "name": "deepseek-v4-flash", "label": "DeepSeek V4 Flash"},
+    "deepseek-v4.1-flash": {"provider": "openai", "name": "deepseek-v4.1-flash", "label": "DeepSeek V4.1 Flash (1M ctx)"},
     "claude-opus-5": {"provider": "anthropic", "name": "claude-opus-5", "label": "Claude Opus 5"},
     "gemini-3.8-flash": {"provider": "openai", "name": "gemini-3.8-flash", "label": "Gemini 3.8 Flash"},
     "grok-4.6": {"provider": "openai", "name": "grok-4.6", "label": "Grok 4.6"},
