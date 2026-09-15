@@ -32,6 +32,11 @@ REPORTS_DIR.mkdir(exist_ok=True)
 MAX_CODE_LEN = 500_000
 MAX_QUESTION_LEN = 4_000
 
+# Максимум одновременных ансамблевых аудитов (каждый = 4-7 мин LLM)
+ENSEMBLE_SEMAPHORE = asyncio.Semaphore(2)
+ENSEMBLE_IP_LIMITS = {}  # ip -> {"date": str, "count": int}
+ENSEMBLE_PER_IP_PER_DAY = 5
+
 
 def safe_filename(raw: str, max_len: int = 100) -> str:
     name = PurePath(raw).name
@@ -187,16 +192,33 @@ async def api_audit_file(
 async def api_audit_ensemble(
     code: str = Form(...),
     question: str = Form(None),
+    request: Request = None,
     client: dict = Depends(verify_key),
 ):
     from .orchestrator import audit_full
     check_code(code, client.get("key"))
     if question:
         question = sanitize(question)
-    try:
-        result = await asyncio.to_thread(audit_full, code, question)
-    except Exception as e:
-        return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
+    # Per-IP лимит на ансамбль (5/сутки) — защита от халявщиков и abuse
+    if request and request.client:
+        client_ip = request.headers.get("x-real-ip") or request.client.host
+    else:
+        client_ip = "?"
+    today = datetime.now(timezone.utc).date().isoformat()
+    entry = ENSEMBLE_IP_LIMITS.setdefault(client_ip, {})
+    if entry.get("date") != today:
+        entry.clear()
+        entry["date"] = today
+        entry["count"] = 0
+    if entry["count"] >= ENSEMBLE_PER_IP_PER_DAY:
+        raise HTTPException(429, f"Слишком много ансамблевых аудитов с этого IP (макс {ENSEMBLE_PER_IP_PER_DAY}/сутки)")
+    entry["count"] += 1
+
+    async with ENSEMBLE_SEMAPHORE:
+        try:
+            result = await asyncio.to_thread(audit_full, code, question)
+        except Exception as e:
+            return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
     report_id = uuid.uuid4().hex[:12]
     save_report(report_id, result["report"], "ensemble",
                 elapsed=result["elapsed_sec"], blocks=result["blocks"], question=question)

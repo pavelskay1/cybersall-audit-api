@@ -10,7 +10,9 @@ import re
 
 # Без сортировки — порядок фиксированный, специфичные сначала
 SANITIZE_PATTERNS = [
-    # Приватные ключи (до всего, чтобы не перехватили короткие паттерны)
+    # PEM-блоки целиком (multi-line) — до всего
+    (r"(?i)-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END \1PRIVATE KEY-----", "[PEM_PRIVATE_KEY_REDACTED]"),
+    # Приватные ключи (заголовок, если end-тег не найден)
     (r"(?i)(BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)[\- ]*", "[PRIVATE_KEY_REDACTED]"),
     # SSH-адреса (до email, чтобы не перехватил email-паттерн)
     (r"ssh\s+\S+@\S+", "ssh [REDACTED_USER]@[REDACTED_HOST]"),

@@ -1,12 +1,20 @@
 # HANDOFF — Cybersall AI Agent (audit-api)
 
-**Обновлено:** 13.09.2026 | **Сервер:** 195.19.202.106 | **Папка:** /opt/audit-api
+**Обновлено:** 15.09.2026 | **Сервер:** 195.19.202.106 | **Папка:** /opt/audit-api
 
 ## Статус
 
-- FastAPI (uvicorn, 127.0.0.1:8000, systemd `audit-api`), nginx: лендинг + прокси
+- FastAPI v0.5 (uvicorn, 127.0.0.1:8000, systemd `audit-api`), nginx: лендинг + прокси
 - Docker sandbox: изоляция вредоносного кода
-- Оркестратор v2.2: Claude Opus 5 → GPT-6-Astra (fallback DeepSeek V4.1 Flash) → Kimi K3, дирижёр DeepSeek V4.1 Flash (1M ctx)
+- Unified splitter: main.py использует orchestrator.split_into_blocks() (было: chunker.split_code)
+- PDF download: /api/report/{id}/pdf (прямое скачивание)
+- Report metadata: JSON + txt для каждого отчёта
+- Ensemble semaphore: макс 2 одновременных ансамбля
+- Ensemble IP limit: 5/сутки/IP
+- Sanitizer: PEM-блоки целиком (header+body+footer)
+- Latency: elapsed в каждом LLM-вызове (audit_runs.jsonl)
+- Cron: очистка reports/ старше 7 дней (3:00 ежедневно)
+- Оркестратор v2.5: Claude Opus 5 → GPT-6-Astra (fallback DeepSeek V4.1 Flash) → Kimi K3, дирижёр DeepSeek V4.1 Flash (1M ctx)
   - `split_into_blocks()`: fast-path — код ≤16000 символов аудируется одним блоком без LLM-сплиттера (было: 4 блока на 30 строк → 11 мин; стало 1 блок → ~3.5 мин)
   - Страховка сплиттера: `_merge_small_blocks()` склеивает блоки <8000 символов, лимит MAX_BLOCKS=16, иначе `_fallback_blocks()` режет по символам
   - `_file_index()`: блоки получают список функций полного файла (борьба с ложными «функция отсутствует»)
@@ -49,8 +57,16 @@
 
 - [x] Деплой контракта CYB на Avalanche C-Chain (proxy 0x9cC9BB843A6B112dec511d53805bf9883DF387e1)
 - [x] Адрес контракта в `secret/treasury.json`
-- [ ] Перезапустить аудит контракта через новый оркестратор v2.2 (точность)
-- [ ] Пересобрать смоук-тест на большом файле (>16000 символов) — проверить лимиты блоков
-- [ ] Push на GitHub (ветка `cybersall-audit-api`)
-- [ ] HTTPS-домен для продакшена
+- [x] Смоук-тест большого файла (>16K символов): 52K chars, 100% покрытие через fallback
+- [x] Push на GitHub (ветка `cybersall-audit-api`, commit b9ca12e)
 - [x] Закрыть/ограничить `/api/auth/create` (free + лимит 5/сутки/IP; pro/enterprise только через X-Admin-Key)
+- [x] Unified splitter (v0.5): main.py → orchestrator.split_into_blocks
+- [x] PDF download (/api/report/{id}/pdf), report metadata (JSON+txt)
+- [x] Sanitizer: PEM body catch (multi-line)
+- [x] Ensemble semaphore (max 2) + IP limit (5/сутки)
+- [x] Latency logging (elapsed_sec в audit_runs.jsonl)
+- [x] Cron: reports cleanup (7 дней, 3:00 MSK)
+- [x] Юнит-тесты: 30/30 (sanitizer 13, auth 6, splitter 10, PEM 1)
+- [ ] Аудит Perevorot v2.2 через ансамбль (4 модели)
+- [ ] HTTPS-домен для продакшена
+- [ ] DeepSeek V4.1 Flash: пустой ответ на больших промптах (fallback работает, но理想的но чтобы LLM-сплиттер работал)

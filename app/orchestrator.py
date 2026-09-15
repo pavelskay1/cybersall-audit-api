@@ -108,7 +108,7 @@ def split_into_blocks(code: str, model: str = ORCHESTRATOR) -> list:
             if splitter_model.startswith(("claude", "anthropic")):
                 r = call_anthropic(splitter_model, prompt, max_tokens=4000)
             else:
-                r = call_openai(splitter_model, prompt, max_tokens=6000)
+                r = call_openai(splitter_model, prompt, max_tokens=10000)
             text = r["text"].strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
@@ -194,7 +194,7 @@ def run_stage(block: dict, stage: dict, previous_results: list) -> dict:
             if not text or len(text) < 20:
                 raise ValueError("Пустой ответ")
             log_audit(model_key, "block=" + name, r.get("usage", {}))
-            return {"model": model_key, "block": name, "text": text, "usage": r.get("usage", {})}
+            return {"model": model_key, "block": name, "text": text, "usage": r.get("usage", {}), "elapsed": r.get("elapsed", 0)}
         except Exception as e:
             errors.append(str(e))
             attempt += 1
@@ -310,7 +310,7 @@ def final_verdict(results: list, code_len: int, model: str = ORCHESTRATOR) -> st
             text = r["text"]
             if not text or len(text) < 20:
                 raise ValueError("Пустой ответ")
-            log_audit(verdict_model, "final_verdict", r.get("usage", {}))
+            log_audit(verdict_model, "final_verdict", r.get("usage", {}), elapsed=r.get("elapsed", 0))
             return text
         except Exception as e:
             print(f"[orchestrator] final_verdict через {verdict_model} не удался: {e}")

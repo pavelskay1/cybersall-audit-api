@@ -95,6 +95,22 @@ def test_preserves_numbers_and_urls():
     assert "github.com" in result
 
 
+
+
+def test_redacts_pem_body():
+    """PEM-блок целиком (header + body + footer) красится."""
+    pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA7w6x3dP2x9L5\n-----END RSA PRIVATE KEY-----"
+    result = sanitize(pem)
+    assert "PEM_PRIVATE_KEY_REDACTED" in result
+    assert "MIIEpAIBAAKCAQEA7w6x3dP2x9L5" not in result
+
+
+def test_redacts_pem_ed25519():
+    """PEM ED25519 ключ тоже ловится."""
+    pem = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAA\n-----END OPENSSH PRIVATE KEY-----"
+    result = sanitize(pem)
+    assert "PEM_PRIVATE_KEY_REDACTED" in result
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0

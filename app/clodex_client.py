@@ -5,7 +5,7 @@
 - в логи попадает только санитизированный question
 - пустые ответы вызывают ошибку (retry на уровне orchestrator)
 """
-import os, json
+import os, json, time
 import httpx
 from pathlib import Path
 from datetime import datetime, timezone
@@ -41,6 +41,7 @@ def load_key() -> str:
 
 
 def call_openai(model: str, prompt: str, max_tokens: int = 8000, temperature: float = 0.2, timeout: int = 300) -> dict:
+    t0 = time.time()
     key = load_key()
     payload = {
         "model": model,
@@ -59,10 +60,12 @@ def call_openai(model: str, prompt: str, max_tokens: int = 8000, temperature: fl
         reasoning = data["choices"][0]["message"].get("reasoning_content", "")
         raise ValueError(f"Пустой ответ от {model}. max_tokens={max_tokens}, reasoning={len(reasoning)} символов. Увеличьте max_tokens")
     usage = data.get("usage", {})
-    return {"text": content, "usage": usage, "model": model}
+    elapsed = time.time() - t0
+    return {"text": content, "usage": usage, "model": model, "elapsed": round(elapsed, 2)}
 
 
 def call_anthropic(model: str, prompt: str, max_tokens: int = 8000) -> dict:
+    t0 = time.time()
     key = load_key()
     headers = {
         "x-api-key": key,
@@ -84,7 +87,8 @@ def call_anthropic(model: str, prompt: str, max_tokens: int = 8000) -> dict:
     if not content:
         raise ValueError(f"Пустой ответ от {model}")
     usage = result.get("usage", {})
-    return {"text": content, "usage": usage, "model": model}
+    elapsed = time.time() - t0
+    return {"text": content, "usage": usage, "model": model, "elapsed": round(elapsed, 2)}
 
 
 def audit_code(code: str, model_key: str, question: str = None) -> dict:
@@ -109,7 +113,7 @@ def audit_code(code: str, model_key: str, question: str = None) -> dict:
     return result
 
 
-def log_audit(model: str, question: str, usage: dict):
+def log_audit(model: str, question: str, usage: dict, elapsed: float = 0):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_file = LOG_DIR / "audit_runs.jsonl"
     record = {
@@ -119,5 +123,7 @@ def log_audit(model: str, question: str, usage: dict):
         "prompt_tokens": usage.get("prompt_tokens") or usage.get("input_tokens") or 0,
         "completion_tokens": usage.get("completion_tokens") or usage.get("output_tokens") or 0,
     }
+    if elapsed:
+        record["elapsed_sec"] = elapsed
     with open(log_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
