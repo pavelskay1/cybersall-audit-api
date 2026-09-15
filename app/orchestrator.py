@@ -13,11 +13,12 @@ from .clodex_client import call_openai, call_anthropic, load_key, MODELS, log_au
 from .sanitizer import sanitize
 
 CHAIN = [
-    {"role": "primary", "model": "claude-opus-5"},
-    {"role": "deep", "model": "gpt-6-astra", "fallback": "deepseek-v4.1-flash"},
-    {"role": "final", "model": "kimi-k3"},
+    {"role": "primary", "model": "claude-opus-5", "fallback": "kimi-k3"},
+    {"role": "deep", "model": "glm-5.2", "fallback": "gpt-6-astra"},
+    {"role": "final", "model": "kimi-k3", "fallback": "glm-5.2"},
 ]
 ORCHESTRATOR = "deepseek-v4.1-flash"
+ORCHESTRATOR_FALLBACK = "glm-5.2"
 QUALITY_CHECKER = "claude-opus-5"
 
 MAX_BLOCK_CHARS = 16000
@@ -103,7 +104,7 @@ def split_into_blocks(code: str, model: str = ORCHESTRATOR) -> list:
         '[{"name": "...", "code": "...", "context": "...", "focus": "..."}]\n\n'
         "Код:\n```python\n" + code[:50000] + "\n```"
     )
-    for splitter_model in [model, "claude-opus-5", "glm-5.2"]:
+    for splitter_model in [model, "glm-5.2", "claude-opus-5", "kimi-k3"]:
         try:
             if splitter_model.startswith(("claude", "anthropic")):
                 r = call_anthropic(splitter_model, prompt, max_tokens=4000)
@@ -239,7 +240,7 @@ def quality_check(results: list, model: str = ORCHESTRATOR):
         "\"questions\": [\"вопросы для доработки\"]}\nТолько JSON."
     )
 
-    for checker_model in [model, "claude-opus-5", "glm-5.2"]:
+    for checker_model in [model, "glm-5.2", "claude-opus-5", "kimi-k3"]:
         try:
             if checker_model.startswith(("claude", "anthropic")):
                 r = call_anthropic(checker_model, prompt, max_tokens=4000)
@@ -301,7 +302,7 @@ def final_verdict(results: list, code_len: int, model: str = ORCHESTRATOR) -> st
         "Ответы моделей:\n" + combined + "\n\n"
         "Итоговый отчёт на русском, чётко и без воды."
     )
-    for verdict_model in [model, "claude-opus-5", "glm-5.2"]:
+    for verdict_model in [model, "glm-5.2", "claude-opus-5", "kimi-k3"]:
         try:
             if verdict_model.startswith(("claude", "anthropic")):
                 r = call_anthropic(verdict_model, prompt, max_tokens=MAX_TOKENS)
@@ -373,6 +374,9 @@ def audit_full(code: str, question: str = None) -> dict:
     # Финальный вердикт дирижёра (дедупликация + учёт разбивки)
     print("[orchestrator] Финальный вердикт (DeepSeek)...")
     verdict = final_verdict(all_results, len(code))
+    if not verdict:
+        print("[orchestrator] Финальный вердикт через fallback conductor...")
+        verdict = final_verdict(all_results, len(code), model=ORCHESTRATOR_FALLBACK)
     if verdict:
         final_text = verdict + "\n\n===== СЫРЫЕ ОТВЕТЫ МОДЕЛЕЙ =====\n\n" + final_text
 
