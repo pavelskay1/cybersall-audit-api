@@ -19,11 +19,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
+from .honeypot import check_honeypot_access, get_honeypot_mount, init_honeypot
 
 LOG_DIR = Path(__file__).parent.parent / "logs"
 SANDBOX_IMAGE = "code-sandbox"
 TIMEOUT = 30
 MAX_OUTPUT = 100_000  # символов
+DOCKER_RUNTIME = "runsc"  # gVisor — userspace kernel, hardened sandbox
 
 # Паттерны для статического анализа (до запуска в Docker)
 STATIC_DANGEROUS = [
@@ -78,6 +80,7 @@ def run_in_sandbox(code: str, client_key: str = None) -> dict:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, dir="/tmp") as f:
         f.write(code)
         code_file = f.name
+    os.chmod(code_file, 0o644)  # Docker daemon needs read access
     
     try:
         # 3. Запуск в Docker
@@ -85,6 +88,7 @@ def run_in_sandbox(code: str, client_key: str = None) -> dict:
         result = subprocess.run(
             [
                 "docker", "run", "--rm",
+                f"--runtime={DOCKER_RUNTIME}",       # gVisor: userspace kernel
                 "--network=none",                    # нет сети
                 "--read-only",                       # read-only FS
                 "--cpus=1",                          # 1 ядро
@@ -92,7 +96,8 @@ def run_in_sandbox(code: str, client_key: str = None) -> dict:
                 "--pids-limit=50",                   # макс 50 процессов
                 "--tmpfs=/tmp:size=50m",             # временная FS
                 "--security-opt=no-new-privileges",  # нет привилегий
-                "-v", f"{code_file}:/tmp/code.py:ro",
+                "-v", f"{code_file}:/code/code.py:ro",
+                *get_honeypot_mount(),               # honeypot decoy-данные
                 SANDBOX_IMAGE,
             ],
             capture_output=True,
@@ -104,9 +109,16 @@ def run_in_sandbox(code: str, client_key: str = None) -> dict:
         # 4. Сбор результатов
         stdout = result.stdout[:MAX_OUTPUT]
         stderr = result.stderr[:MAX_OUTPUT]
+        output = stdout + stderr
         
         # 5. Проверка на аномалии
         threat = check_anomalies(result, code, client_key, elapsed)
+        
+        # 5b. Проверка honeypot — если код тронул decoy-данные
+        if not threat:
+            hp = check_honeypot_access(output, client_key)
+            if hp:
+                threat = hp
         
         # 6. Очистка
         os.unlink(code_file)
