@@ -1,0 +1,142 @@
+# Cybersall AI Agent — Auto Audit Workflow
+# Добавьте в .github/workflows/cybersall-audit.yml
+# Настройте CYBERSALL_API_KEY в Settings → Secrets → Actions
+
+name: Cybersall Code Audit
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  audit:
+    name: AI Code Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Collect changed files
+        id: files
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only | grep -E '\.(py|js|ts|cpp|c|sol|rs|go|java)$' | head -20)
+          else
+            FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -E '\.(py|js|ts|cpp|c|sol|rs|go|java)$' | head -20)
+          fi
+          
+          if [ -z "$FILES" ]; then
+            echo "no_files=true" >> $GITHUB_OUTPUT
+          else
+            echo "no_files=false" >> $GITHUB_OUTPUT
+            echo "$FILES" > /tmp/changed_files.txt
+            echo "Found files:"
+            cat /tmp/changed_files.txt
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Audit code
+        if: steps.files.outputs.no_files != 'true'
+        id: audit
+        run: |
+          RESULTS=""
+          HAS_ISSUES=false
+          
+          while IFS= read -r file; do
+            if [ ! -f "$file" ]; then continue; fi
+            FILE_SIZE=$(wc -c < "$file")
+            
+            # Пропускаем бинарники и слишком большие файлы (>500KB)
+            if [ "$FILE_SIZE" -gt 500000 ]; then
+              echo "Skipping $file (${FILE_SIZE} bytes, too large)"
+              continue
+            fi
+            
+            echo "Auditing: $file (${FILE_SIZE} bytes)"
+            
+            # Кодируем файл в base64 для безопасной передачи
+            CODE_B64=$(base64 -w0 "$file")
+            
+            RESPONSE=$(curl -s -w "\n%{http_code}" \
+              -X POST "http://195.19.202.106:8000/api/audit" \
+              -H "X-API-Key: ${{ secrets.CYBERSALL_API_KEY }}" \
+              -F "code=$CODE_B64" \
+              -F "model=claude-opus-5" \
+              -F "question=Аудит файла $file. Найди баги, уязвимости, логические ошибки. Приоритеты P0/P1/P2." \
+              --max-time 300)
+            
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | head -n -1)
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+              REPORT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('report','No report'))" 2>/dev/null)
+              BLOCKS=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('blocks',1))" 2>/dev/null)
+              
+              # Проверяем наличие P0 проблем
+              if echo "$REPORT" | grep -q "P0"; then
+                HAS_ISSUES=true
+              fi
+              
+              RESULTS="${RESULTS}\n### 📄 ${file} (${BLOCKS} блоков)\n\n${REPORT}\n\n---\n"
+            else
+              RESULTS="${RESULTS}\n### ❌ ${file}\n\nОшибка API: HTTP ${HTTP_CODE}\n\n---\n"
+            fi
+          done < /tmp/changed_files.txt
+          
+          # Сохраняем результаты
+          echo "has_issues=$HAS_ISSUES" >> $GITHUB_OUTPUT
+          echo "$RESULTS" > /tmp/audit_results.md
+
+      - name: Post PR comment
+        if: steps.files.outputs.no_files != 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = fs.readFileSync('/tmp/audit_results.md', 'utf8');
+            const hasIssues = '${{ steps.audit.outputs.has_issues }}' === 'true';
+            
+            const icon = hasIssues ? '🔴' : '🟢';
+            const title = hasIssues 
+              ? `${icon} Cybersall AI: найдены проблемы (P0/P1)`
+              : `${icon} Cybersall AI: критических проблем не найдено`;
+            
+            const body = `## ${title}\n\n${results}\n\n---\n*Powered by [Cybersall AI Agent](https://github.com/pavelskay1/cybersall-audit-api) — AI-аудит кода через ансамбль из 4 LLM*`;
+            
+            // Удаляем старый комментарий если есть
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const existing = comments.find(c => c.body.includes('Cybersall AI'));
+            if (existing) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+              });
+            }
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body,
+            });
+
+      - name: Fail if P0 issues found
+        if: steps.audit.outputs.has_issues == 'true'
+        run: |
+          echo "🔴 Cybersall AI found P0 issues — blocking merge"
+          exit 1
