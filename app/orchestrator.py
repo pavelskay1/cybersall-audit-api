@@ -42,7 +42,7 @@ def estimate_audit_minutes(code_len: int) -> int:
 
 def _file_index(code: str) -> str:
     """Краткий индекс файла: сигнатуры функций, чтобы блоки знали о соседях."""
-    sigs = re.findall(r"^\s*(?:function|constructor|receive|fallback)\s+[^\n{;]+", code, re.M)
+    sigs = re.findall(r"^\s*(?:def\s+\w+|function\s+\w+|constructor|receive|fallback)\s*[^\n{;]*", code, re.M)
     if not sigs:
         return ""
     clean = [s.strip() for s in sigs]
@@ -108,7 +108,7 @@ def split_into_blocks(code: str, model: str = ORCHESTRATOR) -> list:
             if splitter_model.startswith(("claude", "anthropic")):
                 r = call_anthropic(splitter_model, prompt, max_tokens=4000)
             else:
-                r = call_openai(splitter_model, prompt, max_tokens=3000)
+                r = call_openai(splitter_model, prompt, max_tokens=6000)
             text = r["text"].strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
@@ -124,6 +124,13 @@ def split_into_blocks(code: str, model: str = ORCHESTRATOR) -> list:
             for b in blocks:
                 ctx = b.get("context", "")
                 b["context"] = (file_index + "\n\n" + ctx).strip() if file_index else ctx
+            
+            # Проверка покрытия: если потеряно >10% кода — fallback
+            total_in = sum(len(b.get("code", "")) for b in blocks)
+            if total_in < len(code) * 0.9:
+                print(f"[orchestrator] Покрытие {total_in}/{len(code)} ({100*total_in//len(code)}%) — fallback")
+                blocks = _fallback_blocks(code, file_index)
+            
             return blocks
         except Exception as e:
             print(f"[orchestrator] split через {splitter_model} не удался: {e}")

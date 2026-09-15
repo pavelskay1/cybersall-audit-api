@@ -1,6 +1,6 @@
-"""FastAPI-сервис для аудита кода через clodex.xyz.
+"""FastAPI-сервис для аудита кода через AI-пайплайн.
 
-v0.4: добавлен автоматический чанкинг большого кода + SSE таймер.
+v0.5: unified splitter (orchestrator.split_into_blocks), PDF download, report metadata.
 """
 import re
 import html as html_mod
@@ -10,7 +10,7 @@ import asyncio
 from pathlib import Path, PurePath
 from datetime import datetime, timezone
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header, Request
-from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse, FileResponse
 from .clodex_client import audit_code, MODELS
 from .sanitizer import sanitize
 from .auth import verify_key, generate_key, check_create_allowed
@@ -18,18 +18,18 @@ from .sandbox import static_analyze, ban_client
 from .converter import convert_python_to_cpp
 from .email_sender import send_report
 from .pdf_report import generate_audit_report
-from .chunker import split_code, estimate_time
+from .orchestrator import split_into_blocks, estimate_audit_minutes
 
 app = FastAPI(
-    title="Code Audit API",
-    description="Аудит кода через AI-пайплайн (clodex.xyz)",
-    version="0.4.0",
+    title="Cybersall AI Agent",
+    description="AI-аудит кода через ансамбль LLM",
+    version="0.5.0",
 )
 
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
-MAX_CODE_LEN = 500_000  # увеличен до 500 КБ — чанкер разобьёт
+MAX_CODE_LEN = 500_000
 MAX_QUESTION_LEN = 4_000
 
 
@@ -40,23 +40,33 @@ def safe_filename(raw: str, max_len: int = 100) -> str:
 
 
 def check_code(code: str, client_key: str = None):
-    """Валидация входного кода для аудита.
-
-    Код аудита НЕ исполняется на сервере: он санитизируется и уходит в LLM.
-    Запрещённые паттерны (import os, eval и т.п.) — это обычный материал для аудита,
-    поэтому статический анализ и бан здесь НЕ применяются.
-    Бан и sandbox-изоляция остаются только при реальном исполнении кода
-    (см. sandbox.run_in_sandbox).
-    """
+    """Валидация входного кода для аудита."""
     if not code.strip():
         raise HTTPException(400, "Код пустой")
     if len(code) > MAX_CODE_LEN:
         raise HTTPException(413, f"Код слишком большой (макс {MAX_CODE_LEN:,} символов)")
 
 
+def save_report(report_id: str, report_text: str, model: str, elapsed: float = 0,
+                blocks: int = 1, question: str = None, report_type: str = "audit"):
+    """Сохраняет отчёт + метаданные в JSON для PDF/email."""
+    meta = {
+        "report_id": report_id,
+        "type": report_type,
+        "model": model,
+        "elapsed": elapsed,
+        "blocks": blocks,
+        "question": question,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "report_len": len(report_text),
+    }
+    (REPORTS_DIR / f"{report_id}_meta.json").write_text(json.dumps(meta, ensure_ascii=False))
+    (REPORTS_DIR / f"{report_id}_report.txt").write_text(report_text, encoding="utf-8")
+    return meta
+
+
 @app.get("/")
 async def index():
-    """Редирект на лендинг (nginx)."""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/landing/index.html", status_code=302)
 
@@ -73,28 +83,26 @@ async def api_audit(
         question = sanitize(question)
         if len(question) > MAX_QUESTION_LEN:
             raise HTTPException(413, "Question слишком длинный")
-    
-    # Разбиваем большой код на части
-    blocks = split_code(code)
+
+    blocks = await asyncio.to_thread(split_into_blocks, code)
+
     if len(blocks) == 1:
-        # Обычный запрос
         try:
             result = await asyncio.to_thread(audit_code, code, model, question)
         except Exception as e:
             return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
         report_id = uuid.uuid4().hex[:12]
-        report_path = REPORTS_DIR / f"report_{report_id}_{model}.txt"
-        report_path.write_text(result["text"], encoding="utf-8")
+        save_report(report_id, result["text"], model, question=question)
         return {
             "report": result["text"],
+            "report_id": report_id,
             "model": model,
             "prompt_tokens": result["usage"].get("prompt_tokens") or result["usage"].get("input_tokens", 0),
             "completion_tokens": result["usage"].get("completion_tokens") or result["usage"].get("output_tokens", 0),
             "balance_remaining": client.get("remaining"),
             "blocks": 1,
         }
-    
-    # Большие запросы — обработка по блокам
+
     all_reports = []
     for i, block in enumerate(blocks):
         try:
@@ -102,13 +110,13 @@ async def api_audit(
             all_reports.append(f"## Блок {i+1}/{len(blocks)}: {block['name']}\n\n{result['text']}")
         except Exception as e:
             all_reports.append(f"## Блок {i+1}/{len(blocks)}: {block['name']}\n\nОшибка: {e}")
-    
+
     final_report = "\n\n---\n\n".join(all_reports)
     report_id = uuid.uuid4().hex[:12]
-    report_path = REPORTS_DIR / f"report_{report_id}_{model}.txt"
-    report_path.write_text(final_report, encoding="utf-8")
+    save_report(report_id, final_report, model, question=question)
     return {
         "report": final_report,
+        "report_id": report_id,
         "model": model,
         "prompt_tokens": 0,
         "completion_tokens": 0,
@@ -133,25 +141,26 @@ async def api_audit_file(
         raise HTTPException(400, "Файл пустой")
     if question:
         question = sanitize(question)
-    
-    blocks = split_code(code)
+
+    blocks = await asyncio.to_thread(split_into_blocks, code)
+
     if len(blocks) == 1:
         try:
             result = await asyncio.to_thread(audit_code, code, model, question)
         except Exception as e:
             return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
         report_id = uuid.uuid4().hex[:12]
-        report_path = REPORTS_DIR / f"report_{fname}_{report_id}.txt"
-        report_path.write_text(result["text"], encoding="utf-8")
+        save_report(report_id, result["text"], model, question=question)
         return {
             "report": result["text"],
+            "report_id": report_id,
             "model": model,
             "prompt_tokens": result["usage"].get("prompt_tokens") or result["usage"].get("input_tokens", 0),
             "completion_tokens": result["usage"].get("completion_tokens") or result["usage"].get("output_tokens", 0),
             "balance_remaining": client.get("remaining"),
             "blocks": 1,
         }
-    
+
     all_reports = []
     for i, block in enumerate(blocks):
         try:
@@ -159,13 +168,13 @@ async def api_audit_file(
             all_reports.append(f"## Блок {i+1}/{len(blocks)}: {block['name']}\n\n{result['text']}")
         except Exception as e:
             all_reports.append(f"## Блок {i+1}/{len(blocks)}: {block['name']}\n\nОшибка: {e}")
-    
+
     final_report = "\n\n---\n\n".join(all_reports)
     report_id = uuid.uuid4().hex[:12]
-    report_path = REPORTS_DIR / f"report_{fname}_{report_id}.txt"
-    report_path.write_text(final_report, encoding="utf-8")
+    save_report(report_id, final_report, model, question=question)
     return {
         "report": final_report,
+        "report_id": report_id,
         "model": model,
         "prompt_tokens": 0,
         "completion_tokens": 0,
@@ -189,10 +198,11 @@ async def api_audit_ensemble(
     except Exception as e:
         return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
     report_id = uuid.uuid4().hex[:12]
-    report_path = REPORTS_DIR / f"ensemble_{report_id}.txt"
-    report_path.write_text(result["report"], encoding="utf-8")
+    save_report(report_id, result["report"], "ensemble",
+                elapsed=result["elapsed_sec"], blocks=result["blocks"], question=question)
     return {
         "report": result["report"],
+        "report_id": report_id,
         "quality_ok": result["quality_ok"],
         "blocks": result["blocks"],
         "elapsed_sec": result["elapsed_sec"],
@@ -200,10 +210,40 @@ async def api_audit_ensemble(
     }
 
 
+@app.get("/api/report/{report_id}/pdf")
+async def download_pdf(report_id: str, client: dict = Depends(verify_key)):
+    """Скачать PDF-отчёт по report_id."""
+    report_path = REPORTS_DIR / f"{report_id}_report.txt"
+    meta_path = REPORTS_DIR / f"{report_id}_meta.json"
+    if not report_path.exists():
+        raise HTTPException(404, "Отчёт не найден")
+    report_text = report_path.read_text(encoding="utf-8")
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    pdf_bytes = generate_audit_report(
+        report_text,
+        model=meta.get("model", "unknown"),
+        elapsed=meta.get("elapsed", 0),
+        blocks=meta.get("blocks", 1),
+    )
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="cybersall_report_{report_id}.pdf"'},
+    )
+
+
+@app.get("/api/report/{report_id}/meta")
+async def report_meta(report_id: str, client: dict = Depends(verify_key)):
+    """Получить метаданные отчёта."""
+    meta_path = REPORTS_DIR / f"{report_id}_meta.json"
+    if not meta_path.exists():
+        raise HTTPException(404, "Отчёт не найден")
+    return json.loads(meta_path.read_text())
+
+
 @app.get("/api/models")
 async def list_models(client: dict = Depends(verify_key)):
     return {"models": {k: v["label"] for k, v in MODELS.items()}}
-
 
 
 @app.post("/api/convert")
@@ -220,10 +260,11 @@ async def api_convert(
     except Exception as e:
         return JSONResponse({"error": "Ошибка конвертации"}, status_code=500)
     report_id = uuid.uuid4().hex[:12]
-    report_path = REPORTS_DIR / f"convert_{report_id}.cpp"
-    report_path.write_text(result["cpp"], encoding="utf-8")
+    save_report(report_id, result["cpp"], "python->cpp", elapsed=result["elapsed"],
+                question=question, report_type="convert")
     return {
         "cpp": result["cpp"],
+        "report_id": report_id,
         "stages": result["stages"],
         "elapsed": result["elapsed"],
         "balance_remaining": client.get("remaining"),
@@ -260,19 +301,21 @@ async def api_audit_email(
         except Exception as e:
             return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
 
-    # Генерация PDF
+    report_id = uuid.uuid4().hex[:12]
+    save_report(report_id, report, model, elapsed=elapsed, blocks=blocks, question=question)
+
     try:
         pdf_bytes = generate_audit_report(report, model, elapsed, blocks)
     except Exception as e:
         pdf_bytes = None
 
-    # Отправка email
-    subject = f"[Cybersall AI] Отчёт аудита кода — {datetime.now(timezone.utc).strftime('%d.%m.%Y')}"
+    subject = f"[Cybersall AI] Отчёт аудита — {datetime.now(timezone.utc).strftime('%d.%m.%Y')}"
     body = f"<h2>Cybersall AI Agent — Отчёт аудита</h2><p>Режим: {model} | Время: {elapsed}с | Блоков: {blocks}</p><hr><pre>{html_mod.escape(report[:5000])}</pre>"
     sent = send_report(email, subject, body, pdf_bytes, "cybersall_audit_report.pdf")
 
     return {
         "sent": sent,
+        "report_id": report_id,
         "email": email,
         "report_preview": report[:500] + "..." if len(report) > 500 else report,
         "elapsed": elapsed,
@@ -297,24 +340,29 @@ async def api_convert_email(
     except Exception as e:
         return JSONResponse({"error": "Ошибка конвертации"}, status_code=500)
 
-    # Генерация PDF с C++ кодом
+    report_id = uuid.uuid4().hex[:12]
+    save_report(report_id, result["cpp"], "python->cpp", elapsed=result["elapsed"],
+                question=question, report_type="convert")
+
     try:
-        pdf_bytes = generate_audit_report(result["cpp"], "python→c++", result["elapsed"], 1)
+        pdf_bytes = generate_audit_report(result["cpp"], "python->c++", result["elapsed"], 1)
     except Exception:
         pdf_bytes = None
 
-    subject = f"[Cybersall AI] Python → C++ конвертация — {datetime.now(timezone.utc).strftime('%d.%m.%Y')}"
-    body = f"<h2>Cybersall AI Agent — Конвертация Python → C++</h2><p>Время: {result['elapsed']}с</p><hr><pre>{html_mod.escape(result['cpp'][:5000])}</pre>"
+    subject = f"[Cybersall AI] Python -> C++ — {datetime.now(timezone.utc).strftime('%d.%m.%Y')}"
+    body = f"<h2>Cybersall AI Agent — Конвертация Python -> C++</h2><p>Время: {result['elapsed']}с</p><hr><pre>{html_mod.escape(result['cpp'][:5000])}</pre>"
     sent = send_report(email, subject, body, pdf_bytes, "cybersall_convert_report.pdf")
 
     return {
         "sent": sent,
+        "report_id": report_id,
         "email": email,
         "cpp_preview": result["cpp"][:500],
         "elapsed": result["elapsed"],
         "stages": result["stages"],
         "balance_remaining": client.get("remaining"),
     }
+
 
 @app.post("/api/auth/create")
 async def create_key(plan: str = "free", x_admin_key: str | None = Header(None), request: Request = None):
