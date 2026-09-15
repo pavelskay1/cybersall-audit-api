@@ -56,9 +56,17 @@ def call_openai(model: str, prompt: str, max_tokens: int = 8000, temperature: fl
     data = r.json()
     content = data["choices"][0]["message"].get("content", "")
     if not content:
-        # reasoning-модели: content может быть пустым при малом max_tokens
-        reasoning = data["choices"][0]["message"].get("reasoning_content", "")
-        raise ValueError(f"Пустой ответ от {model}. max_tokens={max_tokens}, reasoning={len(reasoning)} символов. Увеличьте max_tokens")
+        # DeepSeek V4.1 Flash: reasoning в отдельном поле
+        reasoning = (data["choices"][0]["message"].get("reasoning_content")
+                     or data["choices"][0]["message"].get("reasoning", "")
+                     or "")
+        if reasoning:
+            # reasoning-модель вернула мысли, но контент пуст — увеличь max_tokens
+            raise ValueError(
+                f"Пустой контент от {model}. reasoning={len(reasoning)} символов. "
+                f"Увеличьте max_tokens (сейчас {max_tokens})"
+            )
+        raise ValueError(f"Пустой ответ от {model}. max_tokens={max_tokens}")
     usage = data.get("usage", {})
     elapsed = time.time() - t0
     return {"text": content, "usage": usage, "model": model, "elapsed": round(elapsed, 2)}

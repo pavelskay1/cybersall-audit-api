@@ -11,3 +11,5 @@ secret/
 *.bak2
 *.bak3
 landing/test_code.py
+honeypot/
+*.bak*
