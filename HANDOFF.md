@@ -1,6 +1,6 @@
 # HANDOFF — Cybersall AI Agent (audit-api)
 
-**Обновлено:** 13.09.2026 | **Сервер:** 195.19.202.106 | **Папка:** /opt/audit-api
+**Обновлено:** 23.09.2026 (релиз: полный LLM-аудит всех модулей + деплой) | **Сервер:** 195.19.202.106 | **Папка:** /opt/audit-api
 
 ## Статус
 
@@ -12,6 +12,13 @@
   - `_file_index()`: блоки получают список функций полного файла (борьба с ложными «функция отсутствует»)
   - `final_verdict()`: DeepSeek дедуплицирует, отсекает ложные, группирует P0/P1/P2; для 1 блока промпт без «проблемы разбивки»
   - `estimate_audit_minutes()`: честная оценка ≈4–5 мин первый блок + ~3 мин каждый следующий (факт 13.09: 1 блок 215с, 4 блока 648с)
+- **Релиз 23.09.2026** (после LLM-аудита всех модулей через /api/audit/ensemble):
+  - `orchestrator.py`: универсальный fallback для всех стадий (claude-opus-5→kimi-k3, gpt-6-astra→deepseek-v4.1-flash, kimi-k3→deepseek-v4-pro), fail-closed quality_check (P0-3), `_fallback_blocks` при отказе сплиттеров (P0-1), harden_code на history/rework_prompt (P1-2), фильтр пустых previous (P1-4), защита fut.result() (P1-5), единый cap MAX_TEMPLATE_SOURCE=50000 (P1-1), extract_template с ZWSP/мин-длиной (P1-3), параллелизм STAGE_WORKERS=4, честный estimate (P2-1/P2-3); `template_code` выдаётся в ответ и сохраняется в reports/ensemble_*.template.txt
+  - `sanitizer.py`: фикс утечки PKCS#8 PEM (обратная ссылка \1 → незахватывающие группы), маскировка оборванных PEM, ssh-паттерн не ест кавычки/скобки строковых литералов, голые значения не маскируют переменные-идентификаторы (api_key = api_key больше не ломается в NameError)
+  - `main.py`: фиксы P0-1 (HTTPException 413 без headers-аргумента), P0-2 (path traversal через model → `_validate_model`), P1-1 (tripwire-контроль в /api/audit/email), P1-2 (partner stats key_hash[:8]), P1-3 (admin-ключ через hmac.compare_digest), P2-1..P2-7 (asyncio.to_thread, email-валидация `_validate_email`, `template_code` → .template.txt, .get() вместо [], lstrip точек, int() в try)
+  - Синхронизировано с продом: все 10 модулей app/ совпадают MD5 1:1; добавлены отсутствовавшие в git `harden.py`, `web3.py`, `honeypot.py`
+  - Документация: `docs/ARCHITECTURE.md` (взаимодействие/синхронизация блоков системы и LLM, включая SMTP §6), `docs/CYBERSALL-NOTES-2026-09-23.md`, отчёты аудитов в `docs/`
+  - Таг в репозитории: `deploy-20260923_172342`
 
 ## Казначейство (mm CLI MetaMask)
 
@@ -51,6 +58,6 @@
 - [x] Адрес контракта в `secret/treasury.json`
 - [ ] Перезапустить аудит контракта через новый оркестратор v2.2 (точность)
 - [ ] Пересобрать смоук-тест на большом файле (>16000 символов) — проверить лимиты блоков
-- [ ] Push на GitHub (ветка `cybersall-audit-api`)
+- [x] Push на GitHub (ветка `cybersall-audit-api`) — релиз 23.09.2026
 - [ ] HTTPS-домен для продакшена
 - [x] Закрыть/ограничить `/api/auth/create` (free + лимит 5/сутки/IP; pro/enterprise только через X-Admin-Key)

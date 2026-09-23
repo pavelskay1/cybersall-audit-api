@@ -5,11 +5,12 @@
 - в логи попадает только санитизированный question
 - пустые ответы вызывают ошибку (retry на уровне orchestrator)
 """
-import os, json
+import os, json, time
 import httpx
 from pathlib import Path
 from datetime import datetime, timezone
 from .sanitizer import sanitize
+from .harden import harden_code, harden_question
 
 CLODEX_URL = "https://clodex.xyz/v1/chat/completions"
 CLODEX_ANTHROPIC_URL = "https://clodex.xyz/v1/messages"
@@ -41,6 +42,7 @@ def load_key() -> str:
 
 
 def call_openai(model: str, prompt: str, max_tokens: int = 8000, temperature: float = 0.2, timeout: int = 300) -> dict:
+    t0 = time.time()
     key = load_key()
     payload = {
         "model": model,
@@ -55,14 +57,24 @@ def call_openai(model: str, prompt: str, max_tokens: int = 8000, temperature: fl
     data = r.json()
     content = data["choices"][0]["message"].get("content", "")
     if not content:
-        # reasoning-модели: content может быть пустым при малом max_tokens
-        reasoning = data["choices"][0]["message"].get("reasoning_content", "")
-        raise ValueError(f"Пустой ответ от {model}. max_tokens={max_tokens}, reasoning={len(reasoning)} символов. Увеличьте max_tokens")
+        # DeepSeek V4.1 Flash: reasoning в отдельном поле
+        reasoning = (data["choices"][0]["message"].get("reasoning_content")
+                     or data["choices"][0]["message"].get("reasoning", "")
+                     or "")
+        if reasoning:
+            # reasoning-модель вернула мысли, но контент пуст — увеличь max_tokens
+            raise ValueError(
+                f"Пустой контент от {model}. reasoning={len(reasoning)} символов. "
+                f"Увеличьте max_tokens (сейчас {max_tokens})"
+            )
+        raise ValueError(f"Пустой ответ от {model}. max_tokens={max_tokens}")
     usage = data.get("usage", {})
-    return {"text": content, "usage": usage, "model": model}
+    elapsed = time.time() - t0
+    return {"text": content, "usage": usage, "model": model, "elapsed": round(elapsed, 2)}
 
 
 def call_anthropic(model: str, prompt: str, max_tokens: int = 8000) -> dict:
+    t0 = time.time()
     key = load_key()
     headers = {
         "x-api-key": key,
@@ -84,7 +96,8 @@ def call_anthropic(model: str, prompt: str, max_tokens: int = 8000) -> dict:
     if not content:
         raise ValueError(f"Пустой ответ от {model}")
     usage = result.get("usage", {})
-    return {"text": content, "usage": usage, "model": model}
+    elapsed = time.time() - t0
+    return {"text": content, "usage": usage, "model": model, "elapsed": round(elapsed, 2)}
 
 
 def audit_code(code: str, model_key: str, question: str = None) -> dict:
@@ -92,8 +105,10 @@ def audit_code(code: str, model_key: str, question: str = None) -> dict:
         raise ValueError(f"Неизвестная модель: {model_key}. Доступные: {list(MODELS.keys())}")
 
     model_info = MODELS[model_key]
-    sanitized_code = sanitize(code)
-    sanitized_question = sanitize(question) if question else None
+    sanitized_code = harden_code(sanitize(code))
+    if question:
+        question = harden_question(sanitize(question))
+    sanitized_question = question
 
     if sanitized_question is None:
         sanitized_question = "Проанализируй код. Найди баги, уязвимости, логические ошибки. Приоритеты P0/P1/P2. Рекомендации на русском."
@@ -109,7 +124,7 @@ def audit_code(code: str, model_key: str, question: str = None) -> dict:
     return result
 
 
-def log_audit(model: str, question: str, usage: dict):
+def log_audit(model: str, question: str, usage: dict, elapsed: float = 0):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_file = LOG_DIR / "audit_runs.jsonl"
     record = {
@@ -119,5 +134,7 @@ def log_audit(model: str, question: str, usage: dict):
         "prompt_tokens": usage.get("prompt_tokens") or usage.get("input_tokens") or 0,
         "completion_tokens": usage.get("completion_tokens") or usage.get("output_tokens") or 0,
     }
+    if elapsed:
+        record["elapsed_sec"] = elapsed
     with open(log_file, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")

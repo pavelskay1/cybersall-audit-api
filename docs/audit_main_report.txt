@@ -1,0 +1,945 @@
+# Итоговый отчёт по аудиту `fastapi_main_service`
+
+Сверил все находки с исходным кодом. Дубликаты объединены, ложные срабатывания отсеяны.
+
+## Отсеянные ложные срабатывания
+
+- **Claude P0-2 (path traversal через `fname`)** — ложное: `fname` проходит `safe_filename`, который заменяет `/` на `_`. Траверсала нет, остаётся только мелочь с dot-именами (учтена в P2-5).
+- **Claude P0-3 («трипваир нигде не проверяет вход»)** — преувеличение: по дизайну трипваир проверяет *выход* оркестратора. Реальный дефект уже — пропуск проверки в email-эндпоинте (P1-1).
+- **Claude P1-3 (часть про `request: Request = None`)** — FastAPI корректно инжектирует `Request` независимо от дефолта. Остаётся только проблема доверия к `x-real-ip` (P2-7).
+
+---
+
+## P0 — Критические
+
+### P0-1. `/api/run`: третий позиционный аргумент `HTTPException` — это `headers`
+```python
+raise HTTPException(413, "Код слишком большой для песочницы (макс 50 000)", code)
+```
+Сигнатура Starlette: `HTTPException(status_code, detail=None, headers=None)`. Весь пользовательский `code` попадает в `headers`; при рендеринге ответа обработчик упадёт (`AttributeError`/`TypeError`) → клиент получит **500 вместо 413**, плюс риск утечки кода в заголовки.
+**Фикс:** убрать третий аргумент, использовать именованные параметры.
+
+### P0-2. `/api/audit`, `/api/audit/file`: `model` попадает в имя файла без валидации → Path Traversal при записи
+```python
+report_path = REPORTS_DIR / f"report_{report_id}_{model}.txt"
+```
+`model` — клиентский Form-параметр, нигде не проверяется. Значение `../../tmp/x` содержит `/` и `..`, которые **не фильтруются** (в отличие от `fname`). Итог — запись отчёта за пределы `REPORTS_DIR` (произвольная запись файла) или падение.
+**Фикс:** валидировать `model` по ключам `MODELS` до использования (хелпер `_validate_model`).
+
+---
+
+## P1 — Серьёзные
+
+### P1-1. `/api/audit/email`: ветка `model="ensemble"` не вызывает `tripwire_hits`/`count_injection_attempt`
+В `/api/audit/ensemble` проверка есть, в email-эндпоинте тот же `audit_full` вызывается без неё — инъекционные попытки через email-канал не считаются и не банятся. Нарушение согласованности механизма бана.
+**Фикс:** добавить ту же проверку `issues` после `audit_full`.
+
+### P1-2. `/api/partner/stats`: подсчёт LLM-токенов по ключам всегда даёт 0
+```python
+hashes = {h[:8] for h in owned}
+...
+if str(rec.get("key_hash", "") or "") in hashes
+```
+В `hashes` — 8-символьные префиксы, а сравнивается **полный** `key_hash` из лога → совпадения никогда не будет (работает только ветка `rec.get("partner") == code`). Статистика расходов партнёра занижается.
+**Фикс:** сравнивать `rec_hash[:8] in hashes`.
+
+### P1-3. `_require_admin`: сравнение ключа через `!=` — тайминг-атака
+```python
+if not stored or x_admin_key != stored:
+```
+Ранний выход на первом несовпадающем символе позволяет побайтово подбирать `X-Admin-Key`.
+**Фикс:** `hmac.compare_digest`.
+
+---
+
+## P2 — Низкие
+
+### P2-1. Блокирующий файловый I/O в async-эндпоинтах
+Все `report_path.write_text(...)`, чтение `audit_runs.jsonl` (до 20k строк) и `ADMIN_KEY_FILE.read_text()` выполняются синхронно в event loop → деградация под нагрузкой.
+**Фикс:** `asyncio.to_thread`.
+
+### P2-2. Нет валидации `email` в `/api/audit/email` и `/api/convert/email`
+`email` уходит в `send_report` как есть — риск инъекции в SMTP-заголовки (зависит от `email_sender`).
+**Фикс:** regex-валидация.
+
+### P2-3. Утечка внутренних исключений в чанк-отчёты
+`all_reports.append(f"...Ошибка: {e}")` — `str(e)` может раскрыть пути и детали интеграции.
+**Фикс:** общий текст без содержимого исключения.
+
+### P2-4. KeyError на частичном результате оркестратора
+`result["quality_ok"]`, `result["blocks"]`, `result["elapsed_sec"]` читаются вне `try` → 500 на неполном ответе. То же в `/api/audit/email`.
+**Фикс:** `.get()` с дефолтами.
+
+### P2-5. `safe_filename` сохраняет ведущие точки
+`safe_filename("..")` → `".."`, `".env"` → `".env"`. Траверсала нет, но dot-файлы/мусор в отчётах.
+**Фикс:** `name.lstrip(".")`.
+
+### P2-6. `template_code` от LLM сохраняется как `.py` в `reports/`
+Footgun: если каталог когда-либо станет достижим интерпретатору — RCE.
+**Фикс:** расширение `.template.txt`.
+
+### P2-7. `x-real-ip` — user-controlled заголовок для лимитов IP; `int()` над полями токенов может дать 500
+Лимит создания free-ключей обходится подменой заголовка (требует доверенного proxy на уровне инфраструктуры — в коде оставлено с комментарием). Некорректные `prompt_tokens`/`completion_tokens` в логе вызовут `ValueError` вне `try` → 500.
+**Фикс:** `int()` обёрнут в `try/except`; доверие к `x-real-ip` — настройка на nginx (задокументировано).
+
+---
+
+## Вывод
+
+**Требует доработки.** Две критические уязвимости (500 вместо 413 с утечкой кода в headers; запись файлов за пределы `reports/` через `model`), сломанный подсчёт токенов партнёра, дыра в механизме бана и тайминг-атака на админ-ключ.
+
+---
+
+## ШАБЛОН ИСПРАВЛЕННОГО КОДА
+
+```python
+"""FastAPI-сервис для аудита кода через clodex.xyz.
+
+v0.4: добавлен автоматический чанкинг большого кода + SSE таймер.
+"""
+import re
+import hmac
+import html as html_mod
+import uuid
+import json
+import asyncio
+from pathlib import Path, PurePath
+from datetime import datetime, timezone
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header, Request
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
+from .clodex_client import audit_code, MODELS
+from .sanitizer import sanitize
+from .auth import verify_key, generate_key, check_create_allowed, resolve_partner, get_partner_share
+from .sandbox import static_analyze, ban_client, run_in_sandbox
+from .harden import harden_question, tripwire_hits
+from .converter import convert_python_to_cpp
+from .email_sender import send_report
+from .pdf_report import generate_audit_report
+from .chunker import split_code, estimate_time
+
+app = FastAPI(
+    title="Code Audit API",
+    description="Аудит кода через AI-пайплайн (clodex.xyz)",
+    version="0.4.0",
+)
+
+REPORTS_DIR = Path(__file__).parent.parent / "reports"
+REPORTS_DIR.mkdir(exist_ok=True)
+
+MAX_CODE_LEN = 500_000  # увеличен до 500 КБ — чанкер разобьёт
+MAX_QUESTION_LEN = 4_000
+
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
+
+def safe_filename(raw: str, max_len: int = 100) -> str:
+    name = PurePath(raw).name
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    name = name.lstrip(".")  # не допускаем dot-файлы и ".."
+    return name[:max_len] or "upload"
+
+
+def _validate_model(model: str, allow_ensemble: bool = False) -> str:
+    """Модель — клиентский параметр и попадает в имя файла отчёта.
+
+    Разрешаем только ключи MODELS (и 'ensemble' там, где он поддерживается),
+    чтобы исключить path traversal через '../../' в имени файла.
+    """
+    if allow_ensemble and model == "ensemble":
+        return model
+    if model not in MODELS:
+        raise HTTPException(400, "Недопустимая модель")
+    return model
+
+
+def _validate_email(email: str) -> str:
+    email = (email or "").strip()
+    if not EMAIL_RE.match(email):
+        raise HTTPException(400, "Некорректный email")
+    return email
+
+
+def _write_text(path: Path, content: str) -> None:
+    """Синхронная запись — вызывать через asyncio.to_thread."""
+    path.write_text(content, encoding="utf-8")
+
+
+def check_code(code: str, client_key: str = None):
+    """Валидация входного кода для аудита.
+
+    Код аудита НЕ исполняется на сервере: он санитизируется и уходит в LLM.
+    Запрещённые паттерны (import os, eval и т.п.) — это обычный материал для аудита,
+    поэтому статический анализ и бан здесь НЕ применяются.
+    Бан и sandbox-изоляция остаются только при реальном исполнении кода
+    (см. sandbox.run_in_sandbox).
+    """
+    if not code.strip():
+        raise HTTPException(400, "Код пустой")
+    if len(code) > MAX_CODE_LEN:
+        raise HTTPException(413, f"Код слишком большой (макс {MAX_CODE_LEN:,} символов)")
+
+
+def clean_question(question: str) -> str:
+    """Санитизация секретов + экранирование промт-инъекции + лимит длины."""
+    if not question:
+        return question
+    q = harden_question(sanitize(question))
+    if len(q) > MAX_QUESTION_LEN:
+        raise HTTPException(413, "Question слишком длинный")
+    return q
+
+
+# --- Поведенческий бан при промт-инъекции (2026-09-23) ---
+INJ_ATTEMPT_LIMIT = 3           # до бана: N срабатываний трипваира с одного ключа
+_inj_attempts: dict = {}        # hash ключа -> число подтверждённых попыток
+
+
+def count_injection_attempt(client_key: str) -> bool:
+    """Регистрирует инъекционную попытку; возвращает True, если пора банить."""
+    if not client_key:
+        return False
+    import hashlib
+    kh = hashlib.sha256(client_key.encode()).hexdigest()
+    n = _inj_attempts.get(kh, 0) + 1
+    if n >= INJ_ATTEMPT_LIMIT:
+        _inj_attempts[kh] = 0
+        ban_client(client_key, "Множественные попытки промт-инъекции")
+        return True
+    _inj_attempts[kh] = n
+    print(f"[SECURITY] Inj-попытка #{n}/{INJ_ATTEMPT_LIMIT} (key {kh[:8]}...)")
+    return False
+
+
+@app.get("/")
+async def index():
+    """Редирект на лендинг (nginx)."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/landing/index.html", status_code=302)
+
+
+@app.post("/api/audit")
+async def api_audit(
+    code: str = Form(...),
+    model: str = Form("claude-opus-5"),
+    question: str = Form(None),
+    client: dict = Depends(verify_key),
+):
+    check_code(code, client.get("key"))
+    model = _validate_model(model)
+    question = clean_question(question)
+
+    # Разбиваем большой код на части
+    blocks = split_code(code)
+    if len(blocks) == 1:
+        # Обычный запрос
+        try:
+            result = await asyncio.to_thread(audit_code, code, model, question)
+        except Exception as e:
+            return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
+        report_id = uuid.uuid4().hex[:12]
+        report_path = REPORTS_DIR / f"report_{report_id}_{model}.txt"
+        await asyncio.to_thread(_write_text, report_path, result["text"])
+        return {
+            "report": result["text"],
+            "model": model,
+            "prompt_tokens": result["usage"].get("prompt_tokens") or result["usage"].get("input_tokens", 0),
+            "completion_tokens": result["usage"].get("completion_tokens") or result["usage"].get("output_tokens", 0),
+            "balance_remaining": client.get("remaining"),
+            "blocks": 1,
+        }
+
+    # Большие запросы — обработка по блокам
+    all_reports = []
+    for i, block in enumerate(blocks):
+        try:
+            result = await asyncio.to_thread(audit_code, block["code"], model, question)
+            all_reports.append(f"## Блок {i+1}/{len(blocks)}: {block['name']}\n\n{result['text']}")
+        except Exception:
+            all_reports.append(f"## Блок {i+1}/{len(blocks)}: {block['name']}\n\nОшибка обработки блока")
+
+    final_report = "\n\n---\n\n".join(all_reports)
+    report_id = uuid.uuid4().hex[:12]
+    report_path = REPORTS_DIR / f"report_{report_id}_{model}.txt"
+    await asyncio.to_thread(_write_text, report_path, final_report)
+    return {
+        "report": final_report,
+        "model": model,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "balance_remaining": client.get("remaining"),
+        "blocks": len(blocks),
+    }
+
+
+@app.post("/api/audit/file")
+async def api_audit_file(
+    file: UploadFile = File(...),
+    model: str = Form("claude-opus-5"),
+    question: str = Form(None),
+    client: dict = Depends(verify_key),
+):
+    fname = safe_filename(file.filename)
+    model = _validate_model(model)
+    content = await file.read()
+    if len(content) > MAX_CODE_LEN:
+        raise HTTPException(413, f"Файл слишком большой (макс {MAX_CODE_LEN:,} байт)")
+    code = content.decode("utf-8", errors="replace")
+    if not code.strip():
+        raise HTTPException(400, "Файл пустой")
+    if question:
+        question = clean_question(question)
+
+    blocks = split_code(code)
+    if len(blocks) == 1:
+        try:
+            result = await asyncio.to_thread(audit_code, code, model, question)
+        except Exception as e:
+            return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
+        report_id = uuid.uuid4().hex[:12]
+        report_path = REPORTS_DIR / f"report_{fname}_{report_id}.txt"
+        await asyncio.to_thread(_write_text, report_path, result["text"])
+        return {
+            "report": result["text"],
+            "model": model,
+            "prompt_tokens": result["usage"].get("prompt_tokens") or result["usage"].get("input_tokens", 0),
+            "completion_tokens": result["usage"].get("completion_tokens") or result["usage"].get("output_tokens", 0),
+            "balance_remaining": client.get("remaining"),
+            "blocks": 1,
+        }
+
+    all_reports = []
+    for i, block in enumerate(blocks):
+        try:
+            result = await asyncio.to_thread(audit_code, block["code"], model, question)
+            all_reports.append(f"## Блок {i+1}/{len(blocks)}: {block['name']}\n\n{result['text']}")
+        except Exception:
+            all_reports.append(f"## Блок {i+1}/{len(blocks)}: {block['name']}\n\nОшибка обработки блока")
+
+    final_report = "\n\n---\n\n".join(all_reports)
+    report_id = uuid.uuid4().hex[:12]
+    report_path = REPORTS_DIR / f"report_{fname}_{report_id}.txt"
+    await asyncio.to_thread(_write_text, report_path, final_report)
+    return {
+        "report": final_report,
+        "model": model,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "balance_remaining": client.get("remaining"),
+        "blocks": len(blocks),
+    }
+
+
+@app.post("/api/audit/ensemble")
+async def api_audit_ensemble(
+    code: str = Form(...),
+    question: str = Form(None),
+    client: dict = Depends(verify_key),
+):
+    from .orchestrator import audit_full
+    check_code(code, client.get("key"))
+    question = clean_question(question)
+    try:
+        result = await asyncio.to_thread(audit_full, code, question)
+    except Exception as e:
+        return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
+
+    # Трипваир инъекции: если дирижёр saw, что модель исполняет инструкции из кода
+    issues = str(result.get("issues") or "")
+    if tripwire_hits(issues):
+        if count_injection_attempt(client.get("key")):
+            raise HTTPException(403, "Ключ заблокирован за инъекционные попытки")
+
+    report_id = uuid.uuid4().hex[:12]
+    report_path = REPORTS_DIR / f"ensemble_{report_id}.txt"
+    await asyncio.to_thread(_write_text, report_path, result.get("report") or "")
+    if result.get("template_code"):
+        # .txt, а не .py: файл приходит от LLM и не должен быть исполняемым
+        tmpl_path = REPORTS_DIR / f"ensemble_{report_id}.template.txt"
+        await asyncio.to_thread(_write_text, tmpl_path, result["template_code"])
+    return {
+        "report": result.get("report") or "",
+        "template_code": result.get("template_code") or "",
+        "quality_ok": result.get("quality_ok", False),
+        "blocks": result.get("blocks", 1),
+        "elapsed_sec": result.get("elapsed_sec", 0),
+        "balance_remaining": client.get("remaining"),
+    }
+
+
+@app.post("/api/run")
+async def api_run(
+    code: str = Form(...),
+    client: dict = Depends(verify_key),
+):
+    """Исполняет код в Docker-песочнице (gVisor runsc, без сети, read-only).
+
+    Изоляция: statический анализ -> Docker (--network=none, honeypot-декой) ->
+    динамический анализ -> поведенческий бан. Аудит при этом НЕ исполняется.
+    """
+    check_code(code, client.get("key"))
+    if len(code) > 50_000:
+        raise HTTPException(
+            status_code=413,
+            detail="Код слишком большой для песочницы (макс 50 000)",
+        )
+
+    result = await asyncio.to_thread(run_in_sandbox, code, client.get("key"))
+    return {**result, "balance_remaining": client.get("remaining")}
+
+
+@app.get("/api/models")
+async def list_models(client: dict = Depends(verify_key)):
+    return {"models": {k: v["label"] for k, v in MODELS.items()}}
+
+
+@app.post("/api/convert")
+async def api_convert(
+    code: str = Form(...),
+    question: str = Form(None),
+    client: dict = Depends(verify_key),
+):
+    check_code(code, client.get("key"))
+    if question:
+        question = clean_question(question)
+    try:
+        result = await asyncio.to_thread(convert_python_to_cpp, code, question)
+    except Exception as e:
+        return JSONResponse({"error": "Ошибка конвертации"}, status_code=500)
+    report_id = uuid.uuid4().hex[:12]
+    report_path = REPORTS_DIR / f"convert_{report_id}.cpp"
+    await asyncio.to_thread(_write_text, report_path, result["cpp"])
+    return {
+        "cpp": result["cpp"],
+        "stages": result["stages"],
+        "elapsed": result["elapsed"],
+        "balance_remaining": client.get("remaining"),
+    }
+
+
+@app.post("/api/audit/email")
+async def api_audit_email(
+    code: str = Form(...),
+    email: str = Form(...),
+    model: str = Form("ensemble"),
+    question: str = Form(None),
+    client: dict = Depends(verify_key),
+):
+    check_code(code, client.get("key"))
+    model = _validate_model(model, allow_ensemble=True)
+    email = _validate_email(email)
+    if question:
+        question = clean_question(question)
+
+    if model == "ensemble":
+        from .orchestrator import audit_full
+        try:
+            result = await asyncio.to_thread(audit_full, code, question)
+            report = result.get("report") or ""
+            elapsed = result.get("elapsed_sec", 0)
+            blocks = result.get("blocks", 1)
+        except Exception as e:
+            return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
+
+        # Трипваир инъекции — тот же контроль, что и в /api/audit/ensemble
+        issues = str(result.get("issues") or "")
+        if tripwire_hits(issues):
+            if count_injection_attempt(client.get("key")):
+                raise HTTPException(403, "Ключ заблокирован за инъекционные попытки")
+    else:
+        try:
+            result = await asyncio.to_thread(audit_code, code, model, question)
+            report = result["text"]
+            elapsed = 0
+            blocks = 1
+        except Exception as e:
+            return JSONResponse({"error": "Ошибка обработки"}, status_code=500)
+
+    # Генерация PDF
+    try:
+        pdf_bytes = generate_audit_report(report, model, elapsed, blocks)
+    except Exception as e:
+        pdf_bytes = None
+
+    # Отправка email
+    subject = f"[Cybersall AI] Отчёт аудита кода — {datetime.now(timezone.utc).strftime('%d.%m.%Y')}"
+    body = f"<h2>Cybersall AI Agent — Отчёт аудита</h2><p>Режим: {model} | Время: {elapsed}с | Блоков: {blocks}</p><hr><pre>{html_mod.escape(report[:5000])}</pre>"
+    sent = send_report(email, subject, body, pdf_bytes, "cybersall_audit_report.pdf")
+
+    return {
+        "sent": sent,
+        "email": email,
+        "report_preview": report[:500] + "..." if len(report) > 500 else report,
+        "elapsed": elapsed,
+        "blocks": blocks,
+        "balance_remaining": client.get("remaining"),
+    }
+
+
+@app.post("/api/convert/email")
+async def api_convert_email(
+    code: str = Form(...),
+    email: str = Form(...),
+    question: str = Form(None),
+    client: dict = Depends(verify_key),
+):
+    check_code(code, client.get("key"))
+    email = _validate_email(email)
+    if question:
+        question = clean_question(question)
+
+    try:
+        result = await asyncio.to_thread(convert_python_to_cpp, code, question)
+    except Exception as e:
+        return JSONResponse({"error": "Ошибка конвертации"}, status_code=500)
+
+    # Генерация PDF с C++ кодом
+    try:
+        pdf_bytes = generate_audit_report(result["cpp"], "python→c++", result["elapsed"], 1)
+    except Exception:
+        pdf_bytes = None
+
+    subject = f"[Cybersall AI] Python → C++ конвертация — {datetime.now(timezone.utc).strftime('%d.%m.%Y')}"
+    body = f"<h2>Cybersall AI Agent — Конвертация Python → C++</h2><p>Время: {result['elapsed']}с</p><hr><pre>{html_mod.escape(result['cpp'][:5000])}</pre>"
+    sent = send_report(email, subject, body, pdf_bytes, "cybersall_convert_report.pdf")
+
+    return {
+        "sent": sent,
+        "email": email,
+        "cpp_preview": result["cpp"][:500],
+        "elapsed": result["elapsed"],
+        "stages": result["stages"],
+        "balance_remaining": client.get("remaining"),
+    }
+
+
+@app.post("/api/auth/create")
+async def create_key(plan: str = "free", ref: str | None = Form(None), x_admin_key: str | None = Header(None), request: Request = None):
+    """Создание ключа: free — с лимитом на IP; pro/enterprise — только с X-Admin-Key. ref — код партнера."""
+    # ВНИМАНИЕ: x-real-ip доверен только если nginx его принудительно перезаписывает.
+    # Без этого клиент может подменить заголовок и обойти лимит создания free-ключей.
+    if request and request.client:
+        client_ip = request.headers.get("x-real-ip") or request.client.host
+    else:
+        client_ip = "?"
+    check_create_allowed(plan, client_ip, x_admin_key)
+    partner = resolve_partner(ref)
+    key = generate_key(plan, partner)
+    out = {"api_key": key, "plan": plan}
+    if partner:
+        out["partner"] = partner
+    return out
+
+
+PARTNER_COST_PER_1M_USD = 0.15  # расходы LLM за 1M токенов (clodex), сервер до 11/2026 бесплатный
+
+
+async def _require_admin(x_admin_key: str | None) -> None:
+    from .auth import ADMIN_KEY_FILE
+    if not x_admin_key:
+        raise HTTPException(403, "Требуется X-Admin-Key")
+    if not ADMIN_KEY_FILE.exists():
+        raise HTTPException(500, "Админ-ключ не настроен на сервере")
+    stored = await asyncio.to_thread(lambda: ADMIN_KEY_FILE.read_text().strip())
+    # compare_digest — constant-time сравнение, защита от тайминг-атаки
+    if not stored or not hmac.compare_digest(x_admin_key, stored):
+        raise HTTPException(403, "Неверный админ-ключ")
+
+
+@app.get("/api/partner/stats")
+async def partner_stats(partner: str, x_admin_key: str | None = Header(None)):
+    """Статистика партнера: ключи, запросы, выручка, расходы LLM+газ, чистая, доля 50% в USD и CYB."""
+    await _require_admin(x_admin_key)
+    from .auth import _load, _load_partners, PLANS
+    code = (partner or "").strip().lower()
+    partners = _load_partners()
+    cfg = partners.get(code)
+    if not isinstance(cfg, dict) or not cfg.get("active", False):
+        raise HTTPException(404, "Партнер не найден или неактивен")
+    keys = _load().get("keys", {})
+    owned = {h: v for h, v in keys.items() if v.get("partner") == code}
+    plan_counts: dict = {}
+    requests_total = 0
+    revenue_usd = 0.0
+    for v in owned.values():
+        plan = v.get("plan", "free")
+        plan_counts[plan] = plan_counts.get(plan, 0) + 1
+        try:
+            requests_total += int(v.get("today_count", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+        price = float(PLANS.get(plan, {}).get("price", 0) or 0)
+        revenue_usd += price
+    hashes = {h[:8] for h in owned}
+    llm_tokens = 0
+    try:
+        log_file = REPORTS_DIR.parent / "logs" / "audit_runs.jsonl"
+        if log_file.exists():
+            lines = await asyncio.to_thread(
+                lambda: log_file.read_text(encoding="utf-8").splitlines()[-20000:]
+            )
+            for line in lines:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                # В логе полный key_hash — сравниваем по 8-символьному префиксу
+                rec_hash = str(rec.get("key_hash", "") or "")
+                if rec_hash[:8] in hashes or rec.get("partner") == code:
+                    try:
+                        llm_tokens += int(rec.get("prompt_tokens", 0) or 0) + int(rec.get("completion_tokens", 0) or 0)
+                    except (TypeError, ValueError):
+                        continue
+    except OSError:
+        pass
+    llm_cost_usd = round(llm_tokens / 1_000_000 * PARTNER_COST_PER_1M_USD, 4)
+    gas_cost_usd = 0.0  # газ учитывается вручную при выплате через treasury (цепочка Avalanche)
+    net_usd = round(revenue_usd - llm_cost_usd - gas_cost_usd, 2)
+    share = get_partner_share(code)
+    payout_usd = round(max(net_usd, 0.0) * share, 2)
+    return {
+        "partner": code,
+        "share": share,
+        "payout_asset": cfg.get("payout_asset", "CYB"),
+        "keys": len(owned),
+        "plans": plan_counts,
+        "requests_total": requests_total,
+        "revenue_usd": round(revenue_usd, 2),
+        "llm_tokens": llm_tokens,
+        "llm_cost_usd": llm_cost_usd,
+        "gas_cost_usd": gas_cost_usd,
+        "net_usd": net_usd,
+        "payout_usd": payout_usd,
+        "note": "requests_total=today_count (сбрасывается ежедневно); месячный объем — по audit_runs.jsonl",
+    }
+
+
+@app.get("/api/auth/balance")
+async def balance(client: dict = Depends(verify_key)):
+    return {"plan": client["plan"], "remaining": client.get("remaining"), "limit": client.get("limit")}
+```
+
+===== СЫРЫЕ ОТВЕТЫ МОДЕЛЕЙ =====
+
+--- claude-opus-5 (блок fastapi_main_service) ---
+# Аудит блока `fastapi_main_service`
+
+## СводкаБлок проанализирован целиком, в т.ч. регрессии `template_code`, санитайзеры, эндпоинты, файловые операции и админ-проверку. Ниже — только то, что подтверждается представленным кодом.
+
+---
+
+## P0 — Критические
+
+### P0-1. [`/api/run`] Некорректный аргумент `HTTPException(code=...)`
+```python
+raise HTTPException(413, "Код слишком большой для песочницы (макс 50 000)", code)
+```
+FastAPI `HTTPException.__init__` **не принимает** kwarg `code` — это поле `status_code`. В результате при попадании ветки срабатывает `TypeError: HTTPException.__init__() got an unexpected keyword argument 'code'`, и пользователь получит **500 Internal Server Error** вместо 413. Это регрессия лимита песочницы (по фокусу №5).
+
+**Фикс:** убрать аргумент `code`.
+
+### P0-2. [`/api/audit/file`] Path Traversal через `fname` в имени файла отчёта + коллизии
+```python
+report_path = REPORTS_DIR / f"report_{fname}_{report_id}.txt"
+```
+`safe_filename` валидирует имя, но **оставляет точки** (`re.sub(r"[^A-Za-z0-9._-]", "_", name)`), значит `fname="../../etc/passwd"` превратится в `.._.._etc_passwd` — не катастрофа, но симметрично: при `fname=".../foo"` получается `.._foo` без расширения — не выйдет из `REPORTS_DIR`, поскольку `/` заменён на `_`. Однако остаются риски:
+
+1. **Атаки на коллизии:** `fname="x"`, `fname="X"` нормализуются по-разному в регистрозависимых FS, но одинаково в HFS+/NTFS — конкурентные запросы с одним `fname` могут перезаписать отчёты друг друга, т.к. `report_id` (12 hex) даёт ~50 бит энтропии, что достаточно против brute-force, но при DDoS-атаке на конкретный `fname` коллизии вероятны.
+2. **Парадокс:** для `/api/audit/file` `fname` уже провалидирован `safe_filename` и может содержать **только** символы из `[A-Za-z0-9._-]`, что безопасно для `Path /`.
+
+Реальная регрессия отсутствует, но:  
+**Фикс (ужесточение):** дополнительно запретить `..` как отдельный компонент и не доверять только regex.
+
+### P0-3. [`/api/run`] Сохранена брея-логика — статический анализ и бан НЕ применяются для **аудита**, но в `check_code` НЕТ проверки трипваира `tripwire_hits` перед отправкой в LLM
+Контекст говорит: «корректность работы механизма бана `count_injection_attempt`». В блоке есть только одно место, где `tripwire_hits` вызывается — `/api/audit/ensemble` на **ответе** модели (`issues = str(result.get("issues") or "")`), а не на **входе** пользователя.
+
+Это значит, что:
+- Если злоумышленник непрерывно шлёт промт-инъекции через `/api/audit` или `/api/audit/file` — **он никогда не будет забанен**, потому что в этих роутах `tripwire_hits` не вызывается вообще.
+- Счётчик `_inj_attempts` доступен только через `count_injection_attempt`, который вызывается **только из ensemble**.
+
+Это нарушение заявленной логики «Поведенческий бан при промт-инъекции (2026-09-23)».
+
+**Фикс:** вызывать `tripwire_hits` на входном `question` (и/или на `code` через отдельный статический анализ) в `/api/audit`, `/api/audit/file`, `/api/audit/email`, `/api/run` с вызовом `count_injection_attempt`.
+
+---
+
+## P1 — Серьёзные
+
+### P1-1. [`_require_admin`] Сравнение строк через `!=` — тайминг-атакa```python
+if not stored or x_admin_key != stored:
+```
+Python `!=` для строк — **не constant-time**: ранний выход при первом несовпадении символа позволяет timing-attack для подбора `X-Admin-Key` (фокус №4). Угроза реальна, т.к. `/api/auth/create` и `/api/partner/stats` позволяют любому попробовать.
+
+**Фикс:** `hmac.compare_digest`.
+
+### P1-2. [`_require_admin`] Чтение файла ключа в каждом запросе + race condition
+`ADMIN_KEY_FILE.read_text().strip()` блокирует диск на каждом `/api/partner/stats` и `/api/auth/create` для pro/enterprise планов. Это: (1) синхронный I/O в async-эндпоинте (фокус №5 — блокирующие файловые операции), (2) можно использовать DoS через частые вызовы.
+
+**Фикс:** кешировать в памяти с `mtime`-инвалидацией или просто в `lru_cache`.
+
+### P1-3. [`/api/auth/create`] `request: Request = None` — не объявлен через FastAPI
+FastAPI обнаружит `request` 
+
+--- gpt-6-astra (блок fastapi_main_service) ---
+## Реальные проблемы
+
+### P1 — `/api/audit` и `/api/audit/file`: `model` участвует в имени файла без валидации
+
+```python
+report_path = REPORTS_DIR / f"report_{report_id}_{model}.txt"
+```
+
+`model` приходит от клиента. Значение вроде `../../tmp/x` содержит разделители пути и может привести к записи отчёта за пределами `REPORTS_DIR`.
+
+**Исправление:** разрешать только ключи из `MODELS`, а имя дополнительно формировать через безопасную функцию построения пути.
+
+---
+
+### P1 — `/api/run`: некорректный вызов `HTTPException`
+
+```python
+raise HTTPException(413, "...", code)
+```
+
+Третий позиционный аргумент не поддерживается конструктором `HTTPException`. При превышении лимита возникнет `TypeError` и клиент получит 500 вместо 413.
+
+**Исправление:**
+
+```python
+raise HTTPException(
+    status_code=413,
+    detail="Код слишком большой для песочницы (макс 50 000)",
+)
+```
+
+---
+
+### P2 — `_require_admin`: сравнение админского ключа обычным `==`
+
+Обычное сравнение строк потенциально допускает тайминг-атаки.
+
+**Исправление:** `hmac.compare_digest`.
+
+Чтение файла ключа выполняется синхронно из async endpoint. Оно вынесено в `asyncio.to_thread`.
+
+---
+
+### P2 — блокирующие операции с отчётами в async endpoint-ах
+
+`write_text()` вызывается непосредственно внутри async-функций. При медленной файловой системе это блокирует event loop.
+
+**Исправление:** запись отчётов вынесена в `asyncio.to_thread`.
+
+---
+
+### P2 — статистика партнёра может неправильно считать токены
+
+```python
+hashes = {h[:8] for h in owned}
+...
+str(rec.get("key_hash", "")) in hashes
+```
+
+Если в журнале хранится полный SHA-256, сравнение полного значения с восьмизначным префиксом не сработает.
+
+**Исправление:** сравнивать первые 8 символов хеша журнала с множеством префиксов.
+
+Также некорректная строка `prompt_tokens` или `completion_tokens` может привести к 500. Преобразование вынесено под обработку ошибок.
+
+---
+
+### P2 — утечка внутренних исключений в отчёт чанкинга
+
+В `/api/audit` и `/api/audit/file` текст `str(e)` добавлялся в пользовательский отчёт. Это может раскрыть внутренние пути, сведения о клиенте или детали интеграции.
+
+**Исправление:** возвращать общий текст ошибки без содержимого исключения.
+
+---
+
+## Полный исправленный код блока
+
+```python
+"""FastAPI-сервис для аудита кода через clodex.xyz.
+
+v0.4: добавлен автоматический чанкинг большого кода + SSE таймер.
+"""
+import hmac
+import re
+import html as html_mod
+import uuid
+import json
+import asyncio
+from pathlib import Path, PurePath
+from datetime import datetime, timezone
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Header, Request
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
+from .clodex_client import audit_code, MODELS
+from .sanitizer import sanitize
+from .auth import verify_key, generate_key, check_create_allowed, resolve_partner, get_partner_share
+from .sandbox import static_analyze, ban_client, run_in_sandbox
+from .harden import harden_question, tripwire_hits
+from .converter import convert_python_to_cpp
+from .email_sender import send_report
+from .pdf_report import generate_audit_report
+from .chunker import split_code, estimate_time
+
+app = FastAPI(
+    title="Code Audit API",
+    description="Аудит кода через AI-пайплайн (clodex.xyz)",
+    version="0.4.0",
+)
+
+REPORTS_DIR = Path(__file__).parent.parent / "reports"
+REPORTS_DIR.mkdir(exist_ok=True)
+
+MAX_CODE_LEN = 500_000  # увеличен до 500 КБ — чанкер разобьёт
+MAX_QUESTION_LEN = 4_000
+
+
+def safe_filename(raw: str, max_len: int = 100) -> str:
+    name = PurePath(raw).name
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+    return name[:max_len] or "upload"
+
+
+def _safe_report_path(filename: str) -> Path:
+    """Возвращает путь внутри REPORTS_DIR, не допуская выхода из каталога."""
+    root = REPORTS_DIR.resolve()
+    candidate = (root / filename).resolve()
+
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        raise HTTPException(400, "Недопустимое имя файла отчёта")
+
+    return candidate
+
+
+--- kimi-k3 (блок fastapi_main_service) ---
+# Аудит блока `fastapi_main_service`
+
+## 1. Реальные проблемы
+
+### P0-1. `/api/run`: третий позиционный аргумент `HTTPException` — это `headers`, а не код
+```python
+raise HTTPException(413, "Код слишком большой для песочницы (макс 50 000)", code)
+```
+Сигнатура Starlette: `HTTPException(status_code, detail=None, headers=None)`. Строка `code` (весь пользовательский код!) попадает в `headers`. При рендеринге ответа обработчик исключений вызовет `headers.items()` у строки → `AttributeError` внутри exception-handler → клиент получит 500 вместо 413, плюс теоретическая утечка кода в заголовки на некоторых конфигурациях. Это подтверждается кодом блока и упомянуто в фокусе №5.
+
+**Фикс:** именованные аргументы, без третьего параметра.
+
+### P0-2. `/api/audit` и `/api/audit/file`: `model` попадает в имя файла без валидации → Path Traversal при записи
+```python
+report_path = REPORTS_DIR / f"report_{report_id}_{model}.txt"
+```
+`model` — клиентский `Form`-параметр. Значение вида `../../tmp/pwn` содержит `/`, который НЕ фильтруется (в отличие от `fname`, который проходит `safe_filename`). Итог: запись отчёта за пределы `REPORTS_DIR` / падение на несуществующей директории. В `/api/audit/file` та же уязвимость в мультиблочной и одноблочной ветках. (Находка подтверждает gpt-6-astra; claude-opus-5 ошибочно посчитал `safe_filename` достаточным — точки там остаются, но главная дыра именно в несанитизированном `model`.)
+
+**Фикс:** валидировать `model` по ключам `MODELS` до использования.
+
+### P1-3. Регрессия трипваира: `/api/audit/email` с `model="ensemble"` не вызывает `tripwire_hits`/`count_injection_attempt`
+В `/api/audit/ensemble` проверка есть, в email-эндпоинте тот же оркестратор вызывается без неё — инъекционные попытки через email-канал не считаются и не банятся. Прямое нарушение фокуса №3 (согласованность механизма бана).
+
+### P1-4. `/api/partner/stats`: подсчёт LLM-токенов партнёра всегда даёт 0 по ключам
+```python
+hashes = {h[:8] for h in owned}
+...
+if str(rec.get("key_hash", "") or "") in hashes
+```
+В `hashes` лежат 8-символьные префиксы, а сравнивается ПОЛНЫЙ `key_hash` из лога — совпадения по ключам никогда не будет (работает только ветка `rec.get("partner") == code`). Подтверждается кодом блока (обрыв находки gpt-6-astra указывал ровно на это).
+
+**Фикс:** сравнивать `rec_hash[:8] in hashes`.
+
+### P2-5. `_require_admin`: сравнение ключа через `!=` — тайминг-атака + блокирующее чтение файла
+```python
+if not stored or x_admin_key != stored:
+```
+Нужен `hmac.compare_digest`; `ADMIN_KEY_FILE.read_text()` в async-контексте — блокирующий I/O (мелочь, но endpoint асинхронный).
+
+### P2-6. Блокирующие `write_text`/`read_text` в async-эндпоинтах [частично ФАЙЛ]
+Все `report_path.write_text(...)` и чтение `audit_runs.jsonl` (до 20k строк) в `partner_stats` выполняются синхронно в event loop. Под нагрузкой — деградация всех запросов.
+
+**Фикс:** хелпер `_save_report` через `asyncio.to_thread`, чтение лога — тоже через `to_thread`.
+
+### P2-7. `/api/audit/ensemble`: `result["quality_ok"]`, `result["blocks"]`, `result["elapsed_sec"]` — KeyError вне try
+`try` оборачивает только вызов `audit_full`; обращение по обязательным ключам после — потенциальный 500 на частичном результате оркестратора. То же в `/api/audit/email`.
+
+### P2-8. Отсутствие валидации `email` в `/api/audit/email` и `/api/convert/email`
+`email` уходит в `send_report` как есть. Без базовой проверки формата возможна инъекция в SMTP-заголовок `To` (зависит от реализации `email_sender`, которой нет в блоке — помечаю как риск по данным блока). Минимальный regex-фильтр закрывает вопрос.
+
+### P2-9. `/api/audit/file`: `fname` санитизируется, но точки сохраняются → скрытые/dot-имена
+`safe_filename("..")` вернёт `".."`, `safe_filename(".env")` → `".env"`. Траверсала нет (префикс/суффикс в f-строке), но отчёты с именами вида `report_.._*.txt` — мусор/коллизии. Дополнительно отсекаем имена, начинающиеся с точки.
+
+---
+
+## 2. Полный исправленный код блока
+
+```python
+"""FastAPI-сервис для аудита кода че
+
+--- ДОРАБОТКА (kimi-k3) ---
+# Финальные правки к выводам моделей
+
+## 1. Корректировки по каждой модели
+
+### claude-opus-5
+
+- **P0-1 — ошибка в механизме.** `HTTPException(413, "...", code)` — это **позиционный** аргумент, а не kwarg. Сигнатура Starlette: `HTTPException(status_code, detail=None, headers=None)`. Строка `code` попадает в `headers`, TypeError «unexpected keyword argument» **не возникает**. 500 получается позже — в exception-handler при `headers.items()` у строки. Вывод (500 вместо 413) верен, обоснование заменить на версию kimi-k3.
+- **P0-2 — снять.** Находка противоречит сама себе (P0, но «реальной регрессии отсутствует»). Рассуждение про коллизии `report_id` (~48 бит) и DDoS спекулятивно. При этом claude **пропустил реальную дыру** — несанитизированный `model` в том же f-string, которую нашли обе другие модели. Заменить P0-2 на находку про `model`, пункт про `safe_filename` оставить informational.
+- **P0-3 — переформулировать.** Утверждение «в этих роутах `tripwire_hits` не вызывается вообще» недоказуемо: все три вывода обрезаны, полный файл не предъявлен. Корректная формулировка: «в показанных фрагментах вызов трипваира на входе отсутствует; требуется полная карта файла и проверка middleware» (вопросы дирижёра №1 и №5). Severity — conditional.
+- **P1-3 (обрезанная, `request: Request = None`) — вероятный false positive.** FastAPI инжектит `Request` **по аннотации типа**, дефолт `None` инъекцию не ломает. Без продолжения текста находку считать неподтверждённой.
+- Пропущены: баг с хешами в `/api/partner/stats`, утечка `str(e)` в отчёт, KeyError вне try.
+
+### gpt-6-astra
+
+- **Механизм HTTPException — ошибочен** («третий позиционный аргумент не поддерживается» — поддерживается, это `headers`). Исправить аналогично.
+- **Смешение аудита и патча.** Формулировки «вынесено в `asyncio.to_thread`», «преобразование вынесено под обработку ошибок» поданы как свершившийся факт, но предъявленный код обрывается на `_safe_report_path` — ни одно «исправление» невозможно верифицировать. Все такие пункты переклассифицировать из «реальных проблем» в «предложенный патч, не верифицирован».
+- Траверсал через `model` — находка верная, но нужна оговорка об условии (см. ниже, пункт 3 консолидации).
+- Находки про hash-префиксы и `str(e)` — верные, оставить.
+
+### kimi-k3
+
+- Наиболее точный разбор HTTPException — **принять как эталонный**.
+- Корректная ремарка про claude и `safe_filename`.
+- P1-4 (хеши): верно, и это **детерминированная** находка — не требует знания формата `key_hash` (см. ниже).
+- P2-8 (email): правильно помечена как зависимая от `email_sender` — оставить conditional.
+- Вывод обрезан на P2-9 — запросить продолжение.
+
+---
+
+## 2. Консолидированный список находок
+
+**Severity rubric (предлагаемый единый):**
+- **P0** — удалённо эксплуатируемая уязвимость (обход auth, запись за пределы каталога, RCE) или гарантированная потеря данных.
+- **P1** — регрессия/неработающий security-механизм, эксплуатируемая при условиях уязвимость, гарантированный сбой на легальном код-пути.
+- **P2** — hardening: тайминги, блокирующий I/O, утечки деталей, отсутствие защитных проверок.
+- **P3** — informational/спекулятивное.
+
+| # | Находка | Severity | Консенсус | Условие |
+|---|---------|----------|-----------|---------|
+| 1 | `HTTPException(413, ..., code)` → `code` в `headers` → 500 в handler вместо 413 | **P1** | 3/3 (механизм — по kimi) | Точный outcome зависит от кастомного handler (вопрос №2). Лимит при этом **не обходится** — запрос падает до песочницы, поэтому не P0 |
+| 2 | `model` без валидации в `f"report_{report_id}_{model}.txt"` → траверсал при записи | **P1, до P0** | 2/3 (gpt, kimi; claude пропустил) | P0, если `model` не валидируется по `MODELS` **до** построения пути (вопрос №3). Write-примитив ограничен: префикс `report_<hex>_`, суффикс `.txt`, контент частично контролируемый |
+| 3 | Непокрытие трипваиром/баном `/api/audit`, `/api/audit/file`, `/api/audit/email` (email+ensemble — точно) | **P1, conditional** | 2/3 с разными рамками (объединить claude P0-3 и kimi P1-3) | Снимается, если есть общий middleware/dependency (вопрос №5). Подтверждено только для ветки email→ensemble |
+| 4 | `/api/partner/stats`: `{h[:8]}` сравнивается с полным `rec["key_hash"]` → токены по ключам всегда 0 | **P1** | 2/3 (gpt, kimi) | **Безусловно**: множество 8-символьных префиксов не может матчиться с полной строкой независимо от формата лога. Фикс: `str(rec.get("key_hash",""))[:8] in hashes` |
+| 5 | `_require_admin`: `!=` вместо `hmac.compare_digest` | **P2** (понизить с P1 у claude) | 3/3 | Практическая эксплуатируемость через сеть низкая; чтение файла ключа в каждом запросе — в тот же пункт |
+| 6 | Блокирующие `write_text`/`read_text` (до 20k строк `audit_runs.jsonl`) в async-эндпоинтах | **P2** | 3/3 | «Исправления» gpt не верифицированы |
+| 7 | `str(e)` попадает в пользовательский отчёт (`/api/audit`, `/api/audit/file`) | **P2** | 1/3 (gpt) | — |
+| 8 | `result["quality_ok"]/["blocks"]/["elapsed_sec"]` вне try → KeyError → 500 | **P2** | 1/3 (kimi) | Зависит от контракта оркестратора |
+| 9 | Нет валидации `email` → потенциальная SMTP header injection | **P3, conditional** | 1/3 (kimi) | Зависит от `email_sender`, не показан |
+| 10 | `safe_filename` сохраняет `.` → dot-имена отчётов | **P3** | 1/3 (kimi, claude) | Траверсала нет |
+
+---
+
+## 3. Ответы на вопросы дирижёра
+
+1. **Карта блоков** — у моделей её нет; все три вывода обрезаны. Без полного файла находки №3 и claude P1-3 остаются неподтверждёнными. **Блокирует финализацию.**
+2. **Сигнатура `HTTPException`** — `(status_code, detail=None, headers=None)` стабильна во всех актуальных Starlette/FastAPI. Третий позиционный = `headers`, это подтверждается без доступа к проекту. Кастомный handler определяет только, будет ли чистый 500 или утечка `code` в заголовки ответа.
+3. **`MODELS`/порядок валидации `model`** — не показан. Это единственный фактор между P0 и P1 для находки №2.
+4. **Формат `key_hash`** — для находки №4 **не требуется**: несоответствие `h[:8]` vs полная строка видно из самого блока. Формат нужен только чтобы выбрать сторону фикса.
+5. **Middleware для tripwire** — не показан; снимает или подтверждает находку №3.
+6. **Rubric** — предложен выше. Обратите внимание: по этому rubric находка №1 опускается с P0 до P1 (сбой есть, обхода лимита нет). Если дирижёр считает «гарантированный 500 на легальном пути» P0 — вернуть P0, это единственная спорная позиция.
+
+## 4. Итоговые действия
+
+- claude-opus-5: исправить механизм P0-1, снять P0-2, переформулировать P0-3 как conditional, верифицировать обрезанную P1-3 (вероятно false positive).
+- gpt-6-astra: отделить находки от неверифицированного патча; исправить механизм HTTPException; предъявить полный patched-файл или снять формулировки «исправлено».
+- kimi-k3: принять как базовую версию; запросить продолжение обрезанного вывода.
+- Дирижёру: предоставить полный файл + ответы на вопросы №2 (handler), №3 (валидация model), №5 (middleware) — они определяют финальные severity находок №1–№3.

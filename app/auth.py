@@ -52,6 +52,49 @@ def _hash(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
+PARTNERS_FILE = SECRET_DIR / "partners.json"
+
+
+def _load_partners() -> dict:
+    try:
+        if PARTNERS_FILE.exists():
+            data = json.loads(PARTNERS_FILE.read_text())
+            if isinstance(data, dict):
+                return data
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def resolve_partner(ref: str | None) -> str | None:
+    """Нормализовать ref в активного партнера или None. Fail-closed: неизвестный ref игнорируется."""
+    if not ref or not isinstance(ref, str):
+        return None
+    code = ref.strip().lower()
+    if not code or len(code) > 64:
+        return None
+    partners = _load_partners()
+    cfg = partners.get(code)
+    if not isinstance(cfg, dict) or not cfg.get("active", False):
+        return None
+    return code
+
+
+def get_partner_share(partner: str | None) -> float:
+    if not partner:
+        return 0.0
+    cfg = _load_partners().get(partner, {})
+    try:
+        share = float(cfg.get("share", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return share if 0.0 < share <= 1.0 else 0.0
+
+
+def key_fingerprint(raw: str) -> str:
+    return _hash(raw)[:8]
+
+
 def check_create_allowed(plan: str, client_ip: str, admin_key: str | None = None) -> None:
     """Защита /api/auth/create: платные планы только с админ-ключом, free — лимит на IP."""
     if plan != "free":
@@ -72,15 +115,17 @@ def check_create_allowed(plan: str, client_ip: str, admin_key: str | None = None
     _save_limits(limits)
 
 
-def generate_key(plan: str = "free") -> str:
+def generate_key(plan: str = "free", partner: str | None = None) -> str:
     if plan not in PLANS:
         raise ValueError(f"Неизвестный план: {plan}. Доступны: {list(PLANS)}")
+    clean_partner = resolve_partner(partner)
     raw = secrets.token_urlsafe(32)
     data = _load()
     now = int(time.time())
     data["keys"][_hash(raw)] = {
         "plan": plan, "created_at": now, "last_used": None,
         "today_count": 0, "today_date": None, "banned": False,
+        "partner": clean_partner,
     }
     _save(data)
     return raw
@@ -114,6 +159,8 @@ def verify_key(api_key: str = Header(..., alias="X-API-Key")) -> dict:
         "remaining": limit - client["today_count"],
         "limit": limit,
         "key": api_key,
+        "key_hash": _hash(api_key)[:8],
+        "partner": client.get("partner"),
     }
 
 
